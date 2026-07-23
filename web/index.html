@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Switch 2 Simulator · built with a Fluorite-style 3D engine</title>
+<style>
+  :root {
+    --bg-0: #0a0c12;
+    --bg-1: #12151f;
+    --ink: #e8ecf4;
+    --muted: #93a0b8;
+    --accent: #37c3ff;
+    --left: #16b7e6;
+    --right: #ff5a5f;
+    --line: rgba(255,255,255,0.08);
+    --panel: rgba(18,21,31,0.72);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: radial-gradient(1200px 800px at 50% -10%, #1b2333 0%, var(--bg-0) 60%);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    touch-action: none;
+  }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .hud { position: fixed; z-index: 5; pointer-events: none; }
+  .hud * { pointer-events: auto; }
+
+  /* Title */
+  .brand {
+    top: 18px; left: 20px;
+  }
+  .brand h1 {
+    margin: 0; font-size: 15px; font-weight: 700; letter-spacing: .2px;
+    display: flex; align-items: center; gap: 9px;
+  }
+  .brand .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:.55; transform:scale(.85)} 50%{opacity:1; transform:scale(1.05)} }
+  .brand p { margin: 5px 0 0 18px; font-size: 12px; color: var(--muted); max-width: 260px; line-height: 1.4; }
+
+  /* Control dock */
+  .dock {
+    bottom: 20px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; padding: 8px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 16px; backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 18px 50px rgba(0,0,0,.5);
+    flex-wrap: wrap; justify-content: center; max-width: 94vw;
+  }
+  .btn {
+    appearance: none; border: 1px solid var(--line);
+    background: rgba(255,255,255,0.03); color: var(--ink);
+    font: inherit; font-size: 12.5px; font-weight: 600;
+    padding: 9px 13px; border-radius: 11px; cursor: pointer;
+    transition: transform .12s ease, background .2s ease, border-color .2s ease;
+    display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  }
+  .btn:hover { background: rgba(255,255,255,0.08); transform: translateY(-1px); }
+  .btn:active { transform: translateY(0) scale(.98); }
+  .btn.on { background: rgba(55,195,255,0.16); border-color: rgba(55,195,255,0.5); color: #cdefff; }
+  .btn .k { font-size: 15px; line-height: 1; }
+  .sep { width: 1px; background: var(--line); margin: 4px 3px; align-self: stretch; }
+
+  /* Mode segmented control */
+  .seg { display: inline-flex; background: rgba(0,0,0,0.25); border-radius: 11px; padding: 3px; gap: 3px; border: 1px solid var(--line); }
+  .seg button {
+    appearance: none; border: 0; background: transparent; color: var(--muted);
+    font: inherit; font-size: 12.5px; font-weight: 600; padding: 7px 12px;
+    border-radius: 9px; cursor: pointer; transition: all .18s ease;
+  }
+  .seg button.on { background: rgba(255,255,255,0.1); color: var(--ink); box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset; }
+
+  /* Info card */
+  .info {
+    top: 18px; right: 18px; width: 232px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px 15px; backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px); box-shadow: 0 14px 40px rgba(0,0,0,.45);
+  }
+  .info h2 { margin: 0 0 9px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .row { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; font-size: 13px; border-bottom: 1px dashed rgba(255,255,255,0.05); }
+  .row:last-child { border-bottom: 0; }
+  .row .v { font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+  .row .v.l { color: var(--left); }
+  .row .v.r { color: var(--right); }
+  .hint { position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%); z-index:5; font-size: 12px; color: var(--muted); opacity: .8; text-align:center; }
+
+  @media (max-width: 720px) {
+    .info { display: none; }
+    .brand p { display: none; }
+    .btn .lbl { display: none; }
+    .btn { padding: 10px; }
+    .seg button { padding: 8px 9px; }
+  }
+  /* Loading */
+  #boot { position: fixed; inset: 0; z-index: 20; display:grid; place-items:center;
+    background: var(--bg-0); transition: opacity .6s ease; }
+  #boot .ring { width: 42px; height: 42px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.12); border-top-color: var(--accent); animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <canvas id="gl"></canvas>
+
+  <div id="boot"><div class="ring"></div></div>
+
+  <div class="hud brand">
+    <h1><span class="dot"></span> Nintendo Switch 2 · Simulator</h1>
+    <p>Real-time 3D built with a Fluorite-style PBR pipeline (WebGL2). Drag to orbit · scroll to zoom.</p>
+  </div>
+
+  <div class="hud info">
+    <h2>Scene</h2>
+    <div class="row"><span>Mode</span><span class="v" id="i-mode">Handheld</span></div>
+    <div class="row"><span>Left Joy-Con 2</span><span class="v l" id="i-left">Attached</span></div>
+    <div class="row"><span>Right Joy-Con 2</span><span class="v r" id="i-right">Attached</span></div>
+    <div class="row"><span>Display</span><span class="v" id="i-power">On</span></div>
+    <div class="row"><span>Draw calls</span><span class="v" id="i-draws">–</span></div>
+    <div class="row"><span>FPS</span><span class="v" id="i-fps">–</span></div>
+  </div>
+
+  <div class="hint" id="hint">Tip: try <b>Tabletop</b> mode, then <b>Detach</b> the Joy-Cons.</div>
+
+  <div class="hud dock">
+    <div class="seg" id="seg-mode">
+      <button data-mode="handheld" class="on">Handheld</button>
+      <button data-mode="tabletop">Tabletop</button>
+      <button data-mode="detached">Detached</button>
+    </div>
+    <div class="sep"></div>
+    <button class="btn on" id="b-power"><span class="k">⏻</span><span class="lbl">Display</span></button>
+    <button class="btn" id="b-app"><span class="k">▦</span><span class="lbl">Cycle app</span></button>
+    <button class="btn on" id="b-spin"><span class="k">⟳</span><span class="lbl">Auto-orbit</span></button>
+    <button class="btn" id="b-reset"><span class="k">⌂</span><span class="lbl">Reset view</span></button>
+  </div>
+
+<script>
+"use strict";
+/* ============================================================================
+   Switch 2 Simulator — a compact, dependency-free WebGL2 renderer.
+
+   This mirrors the *shape* of Toyota's Fluorite engine (a Filament-backed,
+   ECS-driven 3D layer for Flutter): a scene graph of entities, each with a
+   transform + mesh + PBR-ish material, rendered through a physically-inspired
+   shader (Cook-Torrance-lite: GGX specular, Fresnel, image-free IBL via a
+   hemisphere approximation). The Dart/Fluorite equivalent lives in
+   /fluorite_app and maps 1:1 to the entities created below.
+   ============================================================================ */
+
+/* ------------------------------ math (mat4/vec3) ------------------------- */
+const V3 = {
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  scale:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  len:(a)=>Math.hypot(a[0],a[1],a[2]),
+  norm:(a)=>{const l=Math.hypot(a[0],a[1],a[2])||1;return [a[0]/l,a[1]/l,a[2]/l];},
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+};
+const M4 = {
+  ident:()=>[1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1],
+  mul:(a,b)=>{const o=new Array(16);for(let r=0;r<4;r++)for(let c=0;c<4;c++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;},
+  translate:(x,y,z)=>[1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1],
+  scale:(x,y,z)=>[x,0,0,0, 0,y,0,0, 0,0,z,0, 0,0,0,1],
+  rotX:(a)=>{const c=Math.cos(a),s=Math.sin(a);return [1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1];},
+  rotY:(a)=>{const c=Math.cos(a),s=Math.sin(a);return [c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1];},
+  rotZ:(a)=>{const c=Math.cos(a),s=Math.sin(a);return [c,s,0,0, -s,c,0,0, 0,0,1,0, 0,0,0,1];},
+  perspective:(fovy,asp,n,f)=>{const t=1/Math.tan(fovy/2);return [t/asp,0,0,0, 0,t,0,0, 0,0,(f+n)/(n-f),-1, 0,0,(2*f*n)/(n-f),0];},
+  lookAt:(eye,ctr,up)=>{
+    const z=V3.norm(V3.sub(eye,ctr)), x=V3.norm(V3.cross(up,z)), y=V3.cross(z,x);
+    return [x[0],y[0],z[0],0, x[1],y[1],z[1],0, x[2],y[2],z[2],0,
+      -(x[0]*eye[0]+x[1]*eye[1]+x[2]*eye[2]),
+      -(y[0]*eye[0]+y[1]*eye[1]+y[2]*eye[2]),
+      -(z[0]*eye[0]+z[1]*eye[1]+z[2]*eye[2]), 1];
+  },
+  normalMat:(m)=>{ // inverse-transpose of upper 3x3
+    const a=m[0],b=m[1],c=m[2],d=m[4],e=m[5],f=m[6],g=m[8],h=m[9],i=m[10];
+    const A=e*i-f*h, B=f*g-d*i, C=d*h-e*g;
+    let det=a*A+b*B+c*C; det=det||1; const id=1/det;
+    return [A*id, B*id, C*id,
+            (c*h-b*i)*id, (a*i-c*g)*id, (b*g-a*h)*id,
+            (b*f-c*e)*id, (c*d-a*f)*id, (a*e-b*d)*id];
+  }
+};
+
+/* ------------------------------ geometry --------------------------------- */
+// Rounded box: 6 face grids projected onto a rounded-box surface (flat faces,
+// spherical corners, cylindrical edges) — artifact-free and cheap.
+function roundedBox(w,h,d,r,seg=10){
+  const hx=w/2,hy=h/2,hz=d/2; r=Math.min(r,hx,hy,hz);
+  const cx=hx-r,cy=hy-r,cz=hz-r;
+  const clamp=(v,lo,hi)=>v<lo?lo:(v>hi?hi:v);
+  const P=[],N=[],U=[],I=[]; let base=0;
+  const half=[hx,hy,hz], core=[cx,cy,cz];
+  // face: axis a with sign s; tangent axes b,c span full extent
+  function face(a,s){
+    const b=(a+1)%3, c=(a+2)%3;
+    for(let i=0;i<=seg;i++){
+      for(let j=0;j<=seg;j++){
+        const u=-half[b]+2*half[b]*i/seg;
+        const v=-half[c]+2*half[c]*j/seg;
+        const p=[0,0,0]; p[a]=s*half[a]; p[b]=u; p[c]=v;
+        const q=[0,0,0]; q[a]=s*core[a]; q[b]=clamp(u,-core[b],core[b]); q[c]=clamp(v,-core[c],core[c]);
+        const off=[p[0]-q[0],p[1]-q[1],p[2]-q[2]];
+        const n=V3.norm(off);
+        const surf=[q[0]+r*n[0], q[1]+r*n[1], q[2]+r*n[2]];
+        P.push(surf[0],surf[1],surf[2]); N.push(n[0],n[1],n[2]); U.push(i/seg,j/seg);
+      }
+    }
+    for(let i=0;i<seg;i++)for(let j=0;j<seg;j++){
+      const row=seg+1; const a0=base+i*row+j, a1=a0+1, a2=a0+row, a3=a2+1;
+      if(s>0) I.push(a0,a2,a1, a1,a2,a3); else I.push(a0,a1,a2, a1,a3,a2);
+    }
+    base=P.length/3;
+  }
+  for(let a=0;a<3;a++){ face(a,1); face(a,-1); }
+  return {position:new Float32Array(P), normal:new Float32Array(N), uv:new Float32Array(U), index:new Uint16Array(I)};
+}
+
+// Cylinder along Y with rounded... simple capped cylinder.
+function cylinder(rt,rb,h,seg=28){
+  const P=[],N=[],U=[],I=[]; const hh=h/2;
+  for(let i=0;i<=seg;i++){
+    const a=i/seg*Math.PI*2, ca=Math.cos(a), sa=Math.sin(a);
+    P.push(rt*ca,hh,rt*sa); N.push(ca,0,sa); U.push(i/seg,1);
+    P.push(rb*ca,-hh,rb*sa); N.push(ca,0,sa); U.push(i/seg,0);
+  }
+  for(let i=0;i<seg;i++){const k=i*2; I.push(k,k+1,k+2, k+2,k+1,k+3);}
+  // caps
+  const capT=P.length/3; P.push(0,hh,0); N.push(0,1,0); U.push(.5,.5);
+  for(let i=0;i<=seg;i++){const a=i/seg*Math.PI*2; P.push(rt*Math.cos(a),hh,rt*Math.sin(a)); N.push(0,1,0); U.push(.5,.5);}
+  for(let i=0;i<seg;i++) I.push(capT,capT+1+i,capT+2+i);
+  const capB=P.length/3; P.push(0,-hh,0); N.push(0,-1,0); U.push(.5,.5);
+  for(let i=0;i<=seg;i++){const a=i/seg*Math.PI*2; P.push(rb*Math.cos(a),-hh,rb*Math.sin(a)); N.push(0,-1,0); U.push(.5,.5);}
+  for(let i=0;i<seg;i++) I.push(capB,capB+2+i,capB+1+i);
+  return {position:new Float32Array(P), normal:new Float32Array(N), uv:new Float32Array(U), index:new Uint16Array(I)};
+}
+
+// UV sphere (for round buttons)
+function sphere(r,seg=18){
+  const P=[],N=[],U=[],I=[];
+  for(let y=0;y<=seg;y++){const v=y/seg, ph=v*Math.PI;
+    for(let x=0;x<=seg;x++){const u=x/seg, th=u*Math.PI*2;
+      const nx=Math.sin(ph)*Math.cos(th), ny=Math.cos(ph), nz=Math.sin(ph)*Math.sin(th);
+      P.push(r*nx,r*ny,r*nz); N.push(nx,ny,nz); U.push(u,v);
+    }}
+  const row=seg+1;
+  for(let y=0;y<seg;y++)for(let x=0;x<seg;x++){const a=y*row+x; I.push(a,a+1,a+row, a+1,a+row+1,a+row);}
+  return {position:new Float32Array(P), normal:new Float32Array(N), uv:new Float32Array(U), index:new Uint16Array(I)};
+}
+
+function plane(w,h){
+  const hx=w/2,hz=h/2;
+  return {
+    position:new Float32Array([-hx,0,-hz, hx,0,-hz, hx,0,hz, -hx,0,hz]),
+    normal:new Float32Array([0,1,0, 0,1,0, 0,1,0, 0,1,0]),
+    uv:new Float32Array([0,0, 1,0, 1,1, 0,1]),
+    index:new Uint16Array([0,2,1, 0,3,2])
+  };
+}
+
+/* ------------------------------ GL setup --------------------------------- */
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2', {antialias:true, alpha:false});
+if(!gl){ document.getElementById('boot').innerHTML='<p style="color:#fff">WebGL2 not supported on this device.</p>'; throw new Error('no webgl2'); }
+
+const VS = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec2 aUV;
+uniform mat4 uProj, uView, uModel;
+uniform mat3 uNormalMat;
+out vec3 vWorld; out vec3 vNormal; out vec2 vUV;
+void main(){
+  vec4 wp = uModel * vec4(aPos,1.0);
+  vWorld = wp.xyz;
+  vNormal = normalize(uNormalMat * aNormal);
+  vUV = aUV;
+  gl_Position = uProj * uView * wp;
+}`;
+
+const FS = `#version 300 es
+precision highp float;
+in vec3 vWorld; in vec3 vNormal; in vec2 vUV;
+out vec4 frag;
+uniform vec3 uCam;
+uniform vec3 uColor;
+uniform float uMetallic;
+uniform float uRough;
+uniform float uEmissive;      // 0..1 mix toward emissive/screen
+uniform int  uUseTex;         // sample screen texture
+uniform sampler2D uTex;
+uniform float uClear;         // extra clcoat spec for glossy plastic
+
+const vec3 LSKY = vec3(0.62,0.72,0.92);
+const vec3 LGND = vec3(0.14,0.13,0.16);
+
+vec3 fresnelSchlick(float ct, vec3 F0){ return F0 + (1.0-F0)*pow(clamp(1.0-ct,0.0,1.0),5.0); }
+float distGGX(vec3 N, vec3 H, float a){ float a2=a*a; float ndh=max(dot(N,H),0.0); float d=(ndh*ndh*(a2-1.0)+1.0); return a2/(3.14159265*d*d+1e-5); }
+float geomSchlick(float ndv,float k){ return ndv/(ndv*(1.0-k)+k); }
+float geomSmith(vec3 N,vec3 Vv,vec3 L,float k){ return geomSchlick(max(dot(N,Vv),0.0),k)*geomSchlick(max(dot(N,L),0.0),k); }
+
+void main(){
+  vec3 N = normalize(vNormal);
+  vec3 Vv = normalize(uCam - vWorld);
+
+  vec3 albedo = uColor;
+  if(uUseTex==1){ albedo = texture(uTex, vUV).rgb; }
+
+  // Two key + one rim directional light
+  vec3 lights[3];
+  lights[0]=normalize(vec3(-0.5,0.9,0.7));
+  lights[1]=normalize(vec3(0.8,0.35,-0.5));
+  lights[2]=normalize(vec3(0.1,-0.4,-0.9));
+  vec3 lcol[3];
+  lcol[0]=vec3(1.0,0.98,0.94)*2.4;
+  lcol[1]=vec3(0.55,0.68,0.95)*1.1;
+  lcol[2]=vec3(0.9,0.5,0.55)*0.7;
+
+  float rough = clamp(uRough,0.05,1.0);
+  float a = rough*rough;
+  float k = (rough+1.0)*(rough+1.0)/8.0;
+  vec3 F0 = mix(vec3(0.04), albedo, uMetallic);
+
+  vec3 Lo = vec3(0.0);
+  for(int i=0;i<3;i++){
+    vec3 L = lights[i];
+    vec3 H = normalize(Vv+L);
+    float ndl = max(dot(N,L),0.0);
+    float D = distGGX(N,H,a);
+    float G = geomSmith(N,Vv,L,k);
+    vec3 F = fresnelSchlick(max(dot(H,Vv),0.0), F0);
+    vec3 spec = (D*G*F)/(4.0*max(dot(N,Vv),0.0)*ndl+1e-4);
+    vec3 kd = (vec3(1.0)-F)*(1.0-uMetallic);
+    Lo += (kd*albedo/3.14159265 + spec) * lcol[i] * ndl;
+  }
+
+  // Hemisphere ambient / cheap IBL
+  float hemi = 0.5+0.5*N.y;
+  vec3 amb = mix(LGND, LSKY, hemi) * albedo * (1.0 - uMetallic*0.6);
+  // env reflection tint for metals/gloss
+  vec3 R = reflect(-Vv,N);
+  float rh = 0.5+0.5*R.y;
+  vec3 env = mix(LGND, LSKY, rh);
+  float fres = pow(1.0-max(dot(N,Vv),0.0), 5.0);
+  vec3 envSpec = env * (F0 + (max(vec3(1.0-rough),F0)-F0)*fres);
+  amb += envSpec * (uMetallic*0.9 + uClear*0.35);
+
+  vec3 color = Lo + amb;
+
+  // Emissive screen
+  if(uEmissive>0.0){
+    vec3 emis = albedo;
+    color = mix(color, emis*1.15, uEmissive);
+    // subtle glass fresnel sheen on the panel
+    color += vec3(0.9,0.95,1.0)*fres*0.10*uEmissive;
+  }
+
+  // tonemap + gamma
+  color = color/(color+vec3(1.0));
+  color = pow(color, vec3(1.0/2.2));
+  frag = vec4(color,1.0);
+}`;
+
+function compile(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
+const prog = gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,VS));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const U = {};
+["uProj","uView","uModel","uNormalMat","uCam","uColor","uMetallic","uRough","uEmissive","uUseTex","uTex","uClear"]
+  .forEach(n=>U[n]=gl.getUniformLocation(prog,n));
+
+function makeMesh(geo){
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const put=(loc,arr,size)=>{const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
+    gl.bufferData(gl.ARRAY_BUFFER,arr,gl.STATIC_DRAW);gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc,size,gl.FLOAT,false,0,0);};
+  put(0,geo.position,3); put(1,geo.normal,3); put(2,geo.uv,2);
+  const ib=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,geo.index,gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  return {vao, count:geo.index.length};
+}
+
+/* --------------------------- screen texture ------------------------------ */
+// A live 2D canvas used as the console's display (home menu / apps).
+const screenCanvas = document.createElement('canvas');
+screenCanvas.width = 1024; screenCanvas.height = 640;
+const sctx = screenCanvas.getContext('2d');
+const screenTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, screenTex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+const APPS = [
+  {name:'HOME', tiles:[
+    {t:'Mario Kart World', c:'#e8412e'}, {t:'Zelda: TotK', c:'#2e9e6b'},
+    {t:'Metroid Prime 4', c:'#c9962a'}, {t:'Splatoon', c:'#7a3bd6'},
+    {t:'Kirby Air', c:'#e86aa0'}, {t:'eShop', c:'#1f8fd6'} ]},
+  {name:'MARIO KART WORLD', hero:'#e8412e', sub:'Press A to Start'},
+  {name:'THE LEGEND OF ZELDA', hero:'#2e9e6b', sub:'Loading Hyrule…'},
+  {name:'SETTINGS', settings:true},
+];
+let appIndex = 0;
+let powered = true;
+
+function roundRect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);
+  c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
+
+function drawScreen(){
+  const W=screenCanvas.width, H=screenCanvas.height, c=sctx;
+  if(!powered){ c.fillStyle='#000'; c.fillRect(0,0,W,H); uploadScreen(); return; }
+  const app = APPS[appIndex];
+
+  // background gradient
+  const g=c.createLinearGradient(0,0,0,H);
+  if(app.hero){ g.addColorStop(0, shade(app.hero,-40)); g.addColorStop(1, shade(app.hero,-75)); }
+  else { g.addColorStop(0,'#20252e'); g.addColorStop(1,'#12151b'); }
+  c.fillStyle=g; c.fillRect(0,0,W,H);
+
+  // top status bar
+  const now=new Date();
+  const hh=String(now.getHours()).padStart(2,'0'), mm=String(now.getMinutes()).padStart(2,'0');
+  c.fillStyle='rgba(255,255,255,0.92)';
+  c.font='600 30px system-ui, sans-serif'; c.textBaseline='top';
+  c.fillText(`${hh}:${mm}`, 40, 30);
+  c.textAlign='right';
+  c.fillText('100%', W-90, 30);
+  // battery glyph
+  c.strokeStyle='rgba(255,255,255,0.9)'; c.lineWidth=3;
+  roundRect(c,W-78,32,42,22,4); c.stroke();
+  c.fillStyle='rgba(255,255,255,0.9)'; c.fillRect(W-36,38,5,10);
+  c.fillRect(W-74,36,34,14);
+  c.textAlign='left';
+
+  if(app.tiles){
+    // Home menu — grid of game tiles
+    const cols=3, gapx=36, gapy=40, mx=70, top=140;
+    const tw=(W-mx*2-gapx*(cols-1))/cols, th=150;
+    app.tiles.forEach((tile,i)=>{
+      const cx=mx+(i%cols)*(tw+gapx), cy=top+Math.floor(i/cols)*(th+gapy);
+      const sel = (i===selectedTile);
+      c.save();
+      if(sel){ c.shadowColor='rgba(255,255,255,0.6)'; c.shadowBlur=26; }
+      const tg=c.createLinearGradient(cx,cy,cx,cy+th);
+      tg.addColorStop(0,shade(tile.c,15)); tg.addColorStop(1,shade(tile.c,-30));
+      c.fillStyle=tg; roundRect(c,cx,cy,tw,th,16); c.fill();
+      c.restore();
+      if(sel){ c.strokeStyle='#fff'; c.lineWidth=5; roundRect(c,cx-3,cy-3,tw+6,th+6,19); c.stroke(); }
+      // label
+      c.fillStyle='rgba(0,0,0,0.28)'; roundRect(c,cx,cy+th-46,tw,46,0); c.fill();
+      c.fillStyle='#fff'; c.font='600 22px system-ui, sans-serif';
+      c.fillText(tile.t, cx+16, cy+th-38, tw-24);
+    });
+    c.fillStyle='rgba(255,255,255,0.85)'; c.font='700 34px system-ui, sans-serif';
+    c.fillText('Nintendo Switch', 70, 84);
+    c.fillStyle='#37c3ff'; c.fillText('2', 70+c.measureText('Nintendo Switch ').width, 84);
+  } else if(app.settings){
+    c.fillStyle='#fff'; c.font='700 44px system-ui, sans-serif'; c.fillText('System Settings', 70, 120);
+    const items=['Display  —  1080p / 120Hz','Joy-Con 2  —  Magnetic attach','GameChat  —  Ready','Airplane Mode  —  Off','Theme  —  Basic Black'];
+    items.forEach((t,i)=>{ const y=210+i*72;
+      c.fillStyle='rgba(255,255,255,0.06)'; roundRect(c,60,y,W-120,56,12); c.fill();
+      c.fillStyle= i===selectedTile%items.length ? '#37c3ff':'rgba(255,255,255,0.9)';
+      c.font='500 26px system-ui, sans-serif'; c.fillText(t, 84, y+15); });
+  } else {
+    // Game splash
+    c.fillStyle='rgba(255,255,255,0.96)'; c.font='800 64px system-ui, sans-serif';
+    c.textAlign='center'; c.fillText(app.name, W/2, H/2-70);
+    c.font='500 30px system-ui, sans-serif'; c.fillStyle='rgba(255,255,255,0.8)';
+    const blink = (Math.floor(Date.now()/600)%2)===0;
+    if(blink) c.fillText(app.sub||'', W/2, H/2+30);
+    c.textAlign='left';
+  }
+  uploadScreen();
+}
+let selectedTile = 0;
+function uploadScreen(){
+  gl.bindTexture(gl.TEXTURE_2D, screenTex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,screenCanvas);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+}
+function shade(hex,amt){
+  const n=parseInt(hex.slice(1),16); let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  r=Math.max(0,Math.min(255,r+amt)); g=Math.max(0,Math.min(255,g+amt)); b=Math.max(0,Math.min(255,b+amt));
+  return `rgb(${r},${g},${b})`;
+}
+
+/* --------------------------- scene graph --------------------------------- */
+// Entities: {mesh, material, transform-fn returning model matrix}
+const meshes = {
+  bodyMain: makeMesh(roundedBox(9.4, 4.7, 0.62, 0.42, 14)),
+  screen:   makeMesh(roundedBox(8.05, 3.9, 0.02, 0.16, 6)),
+  glass:    makeMesh(roundedBox(8.55, 4.35, 0.10, 0.30, 8)),
+  joyBody:  makeMesh(roundedBox(1.55, 4.7, 0.62, 0.42, 12)),
+  rail:     makeMesh(roundedBox(0.14, 4.2, 0.30, 0.05, 3)),
+  stick:    makeMesh(cylinder(0.34,0.40,0.34,26)),
+  stickTop: makeMesh(cylinder(0.40,0.40,0.10,26)),
+  btnRound: makeMesh(sphere(0.20,16)),
+  btnSmall: makeMesh(sphere(0.13,14)),
+  dpad:     makeMesh(roundedBox(0.24,0.72,0.14,0.05,3)),
+  kickstand:makeMesh(roundedBox(3.6, 3.4, 0.08, 0.18, 6)),
+  triggerT: makeMesh(roundedBox(1.5,0.5,0.55,0.2,6)),
+  floor:    makeMesh(plane(60,60)),
+  bezelBtn: makeMesh(cylinder(0.12,0.12,0.10,20)),
+};
+
+// materials
+const M = {
+  bodyBlack:  {color:[0.055,0.06,0.075], metallic:0.15, rough:0.42, clear:0.6},
+  bodyDark:   {color:[0.09,0.10,0.12],  metallic:0.1,  rough:0.5,  clear:0.4},
+  joyLeft:    {color:[0.02,0.55,0.78],  metallic:0.05, rough:0.45, clear:0.5},
+  joyRight:   {color:[0.92,0.16,0.20],  metallic:0.05, rough:0.45, clear:0.5},
+  rail:       {color:[0.30,0.32,0.36],  metallic:0.9,  rough:0.28},
+  stick:      {color:[0.04,0.04,0.05],  metallic:0.1,  rough:0.6},
+  stickRing:  {color:[0.12,0.13,0.15],  metallic:0.5,  rough:0.4},
+  btnLight:   {color:[0.72,0.74,0.80],  metallic:0.2,  rough:0.5},
+  btnDark:    {color:[0.10,0.11,0.13],  metallic:0.2,  rough:0.5},
+  metal:      {color:[0.55,0.57,0.62],  metallic:0.95, rough:0.25},
+  glass:      {color:[0.02,0.02,0.03],  metallic:0.0,  rough:0.08, clear:1.0},
+  floor:      {color:[0.05,0.055,0.07], metallic:0.0,  rough:0.9},
+  screen:     {color:[1,1,1], metallic:0, rough:0.2, emissive:1.0, tex:true},
+};
+
+// Animatable state (eased toward targets each frame)
+const state = {
+  leftX: 0, rightX: 0,     // joy-con lateral offset (detach animation)
+  leftZ: 0, rightZ: 0,
+  leftT: -4.6, rightT: 4.6, // attached x positions
+  kick: 0,                  // kickstand open amount 0..1
+  screenTilt: 0,            // tabletop leans the console back
+};
+const target = {leftX:0,rightX:0,leftZ:0,leftDrop:0,rightDrop:0,kick:0,screenTilt:0,bodyLift:0};
+state.bodyLift = 0;
+
+// Entity list builder — returns array of {mesh, mat, model}
+function buildEntities(){
+  const ents=[];
+  const push=(mesh,mat,model)=>ents.push({mesh,mat,model});
+  const bodyLift = state.bodyLift;
+  const tilt = state.screenTilt; // radians back-lean for tabletop
+
+  // Root transform: whole console tilts back for tabletop, sits on floor
+  const root = M4.mul(M4.translate(0, bodyLift, 0), M4.rotX(tilt));
+
+  // ---- Central tablet ----
+  push(meshes.bodyMain, M.bodyBlack, M4.mul(root, M4.ident()));
+  // glossy black glass panel (front bezel, +Z) — sits just under the display
+  push(meshes.glass, M.glass, M4.mul(root, M4.translate(0,0,0.30)));
+  // emissive screen sits proud of the glass so the home menu is visible
+  push(meshes.screen, M.screen, M4.mul(root, M4.translate(0,0,0.37)));
+  // little power + volume buttons on the top edge
+  push(meshes.bezelBtn, M.metal, M4.mul(root, M4.mul(M4.translate(-1.0,2.42,0.0), M4.rotX(Math.PI/2))));
+  push(meshes.bezelBtn, M.metal, M4.mul(root, M4.mul(M4.translate(-1.7,2.42,0.0), M4.rotX(Math.PI/2))));
+  push(meshes.bezelBtn, M.metal, M4.mul(root, M4.mul(M4.translate(-2.3,2.42,0.0), M4.rotX(Math.PI/2))));
+
+  // ---- Kickstand (hinges out from the back, -Z, down to the surface) ----
+  if(state.kick>0.001){
+    const k = state.kick;
+    const kmodel = M4.mul(root,
+      M4.mul(M4.translate(0,-1.2,-0.32),      // hinge at back-bottom edge
+      M4.mul(M4.rotX(-(0.5 + k*0.55)),        // lean the leg back toward the table
+             M4.translate(0,-1.5,0))));       // extend the leg downward
+    push(meshes.kickstand, M.bodyDark, kmodel);
+  }
+
+  // ---- Joy-Cons ----
+  function joycon(side){ // side = -1 left, +1 right
+    const isLeft = side<0;
+    const mat = isLeft ? M.joyLeft : M.joyRight;
+    const baseX = isLeft ? state.leftT : state.rightT;
+    const ox = isLeft ? state.leftX : state.rightX;
+    const oz = isLeft ? state.leftZ : state.rightZ;
+    const drop = isLeft ? state.leftDropCur : state.rightDropCur;
+    const jRoot = M4.mul(root, M4.translate(baseX+ox, drop, oz));
+    push(meshes.joyBody, mat, jRoot);
+    // magnetic rail (inner edge, metallic)
+    push(meshes.rail, M.rail, M4.mul(jRoot, M4.translate(isLeft?0.80:-0.80,0,0)));
+    // analog stick
+    const stickY = isLeft ? 1.15 : 0.55;
+    const sRoot = M4.mul(jRoot, M4.translate(0, stickY, 0.34));
+    push(meshes.stick, M.stickRing, M4.mul(sRoot, M4.rotX(Math.PI/2)));
+    push(meshes.stickTop, M.stick, M4.mul(sRoot, M4.mul(M4.translate(0,0,0.16), M4.rotX(Math.PI/2))));
+    if(isLeft){
+      // D-pad (Switch 2 left has 4 discrete buttons; render a plus)
+      const dRoot = M4.mul(jRoot, M4.translate(0,-0.95,0.34));
+      push(meshes.dpad, M.btnDark, M4.mul(dRoot, M4.ident()));
+      push(meshes.dpad, M.btnDark, M4.mul(dRoot, M4.rotZ(Math.PI/2)));
+      // minus button
+      push(meshes.btnSmall, M.btnDark, M4.mul(jRoot, M4.translate(0.35,1.85,0.34)));
+    } else {
+      // ABXY face buttons
+      const fRoot = M4.mul(jRoot, M4.translate(0,-0.95,0.34));
+      push(meshes.btnRound, M.btnLight, M4.mul(fRoot, M4.translate(0,0.42,0)));   // X
+      push(meshes.btnRound, M.btnLight, M4.mul(fRoot, M4.translate(0,-0.42,0)));  // B
+      push(meshes.btnRound, M.btnLight, M4.mul(fRoot, M4.translate(-0.42,0,0)));  // Y
+      push(meshes.btnRound, M.btnLight, M4.mul(fRoot, M4.translate(0.42,0,0)));   // A
+      // plus button + home + capture
+      push(meshes.btnSmall, M.btnDark, M4.mul(jRoot, M4.translate(-0.35,1.85,0.34)));
+      push(meshes.btnSmall, M.metal,  M4.mul(jRoot, M4.translate(-0.35,-1.85,0.34))); // home
+      push(meshes.btnSmall, M.btnDark, M4.mul(jRoot, M4.translate(0.35,-1.85,0.34)));  // capture
+    }
+    // shoulder trigger on top
+    push(meshes.triggerT, mat, M4.mul(jRoot, M4.translate(0,2.35,0.02)));
+  }
+  joycon(-1); joycon(+1);
+
+  return ents;
+}
+
+/* ------------------------------ camera ----------------------------------- */
+const cam = { theta: -0.5, phi: 1.15, radius: 15.5, target:[0,0.2,0], autospin:true };
+const camDefault = {...cam};
+
+function eye(){
+  const r=cam.radius, ph=cam.phi, th=cam.theta;
+  return [
+    cam.target[0]+r*Math.sin(ph)*Math.sin(th),
+    cam.target[1]+r*Math.cos(ph),
+    cam.target[2]+r*Math.sin(ph)*Math.cos(th),
+  ];
+}
+
+/* ------------------------------ interaction ------------------------------ */
+let dragging=false, lastX=0, lastY=0;
+canvas.addEventListener('pointerdown',e=>{dragging=true;lastX=e.clientX;lastY=e.clientY;cam.autospin=false;syncSpinBtn();canvas.setPointerCapture(e.pointerId);});
+canvas.addEventListener('pointerup',()=>dragging=false);
+canvas.addEventListener('pointercancel',()=>dragging=false);
+canvas.addEventListener('pointermove',e=>{
+  if(!dragging)return;
+  const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY;
+  cam.theta -= dx*0.008;
+  cam.phi = Math.max(0.25, Math.min(Math.PI-0.25, cam.phi - dy*0.008));
+});
+canvas.addEventListener('wheel',e=>{e.preventDefault();cam.radius=Math.max(8,Math.min(30,cam.radius+e.deltaY*0.01));},{passive:false});
+// pinch zoom
+let pinchDist=0;
+canvas.addEventListener('touchmove',e=>{
+  if(e.touches.length===2){
+    const dx=e.touches[0].clientX-e.touches[1].clientX, dy=e.touches[0].clientY-e.touches[1].clientY;
+    const d=Math.hypot(dx,dy);
+    if(pinchDist) cam.radius=Math.max(8,Math.min(30,cam.radius+(pinchDist-d)*0.03));
+    pinchDist=d; e.preventDefault();
+  }
+},{passive:false});
+canvas.addEventListener('touchend',()=>pinchDist=0);
+
+/* ------------------------------ UI wiring -------------------------------- */
+let mode='handheld';
+const modeSeg=document.getElementById('seg-mode');
+modeSeg.addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  [...modeSeg.children].forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  setMode(b.dataset.mode);
+});
+function setMode(m){
+  mode=m;
+  document.getElementById('i-mode').textContent = m[0].toUpperCase()+m.slice(1);
+  const li=document.getElementById('i-left'), ri=document.getElementById('i-right');
+  if(m==='handheld'){ target.leftX=0; target.rightX=0; target.leftDrop=0; target.rightDrop=0; target.kick=0; target.screenTilt=0; target.bodyLift=0;
+    li.textContent='Attached'; ri.textContent='Attached'; }
+  if(m==='tabletop'){ target.leftX=0; target.rightX=0; target.leftDrop=0; target.rightDrop=0; target.kick=1; target.screenTilt=-0.28; target.bodyLift=1.4;
+    li.textContent='Attached'; ri.textContent='Attached'; }
+  if(m==='detached'){ target.leftX=-3.2; target.rightX=3.2; target.leftDrop=-1.2; target.rightDrop=-1.2; target.kick=1; target.screenTilt=-0.28; target.bodyLift=1.4;
+    li.textContent='Detached'; ri.textContent='Detached'; }
+  const hint=document.getElementById('hint'); hint.style.opacity=0;
+}
+
+const bPower=document.getElementById('b-power');
+bPower.addEventListener('click',()=>{ powered=!powered; bPower.classList.toggle('on',powered);
+  document.getElementById('i-power').textContent=powered?'On':'Off'; M.screen.emissiveOverride = powered?1.0:0.0; });
+const bApp=document.getElementById('b-app');
+bApp.addEventListener('click',()=>{ if(!powered){powered=true;bPower.classList.add('on');document.getElementById('i-power').textContent='On';}
+  appIndex=(appIndex+1)%APPS.length; selectedTile=0; });
+const bSpin=document.getElementById('b-spin');
+bSpin.addEventListener('click',()=>{ cam.autospin=!cam.autospin; syncSpinBtn(); });
+function syncSpinBtn(){ bSpin.classList.toggle('on',cam.autospin); }
+document.getElementById('b-reset').addEventListener('click',()=>{
+  cam.theta=camDefault.theta; cam.phi=camDefault.phi; cam.radius=camDefault.radius;
+});
+
+// cycle home-menu selection slowly for life
+setInterval(()=>{ if(powered && APPS[appIndex].tiles){ selectedTile=(selectedTile+1)%APPS[appIndex].tiles.length; } },1400);
+
+/* ------------------------------ render loop ------------------------------ */
+function resize(){
+  const dpr=Math.min(window.devicePixelRatio||1, 2);
+  const w=Math.floor(canvas.clientWidth*dpr), h=Math.floor(canvas.clientHeight*dpr);
+  if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; }
+}
+gl.enable(gl.DEPTH_TEST);
+gl.enable(gl.CULL_FACE);
+gl.cullFace(gl.BACK);
+gl.clearColor(0.039,0.047,0.071,1);
+
+// current eased joycon drop
+state.leftDropCur=0; state.rightDropCur=0;
+
+let last=performance.now(), fpsAcc=0, fpsN=0, drawCount=0;
+function ease(cur,tgt,k){ return cur+(tgt-cur)*k; }
+
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000); last=now;
+
+  // ease animation state
+  const k=1-Math.pow(0.001,dt); // smoothing
+  state.leftX=ease(state.leftX,target.leftX,k);
+  state.rightX=ease(state.rightX,target.rightX,k);
+  state.leftDropCur=ease(state.leftDropCur,target.leftDrop,k);
+  state.rightDropCur=ease(state.rightDropCur,target.rightDrop,k);
+  state.kick=ease(state.kick,target.kick,k);
+  state.screenTilt=ease(state.screenTilt,target.screenTilt,k);
+  state.bodyLift=ease(state.bodyLift,target.bodyLift,k);
+
+  if(cam.autospin) cam.theta+=dt*0.28;
+
+  resize();
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+
+  const asp=canvas.width/canvas.height;
+  const proj=M4.perspective(50*Math.PI/180, asp, 0.1, 100);
+  const e=eye();
+  const view=M4.lookAt(e, cam.target, [0,1,0]);
+  gl.uniformMatrix4fv(U.uProj,false,new Float32Array(proj));
+  gl.uniformMatrix4fv(U.uView,false,new Float32Array(view));
+  gl.uniform3fv(U.uCam,new Float32Array(e));
+
+  // update screen texture (throttled)
+  drawScreen();
+
+  // floor
+  const ents=[{mesh:meshes.floor, mat:M.floor, model:M4.translate(0,-3.5,0)}].concat(buildEntities());
+
+  drawCount=0;
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, screenTex);
+  gl.uniform1i(U.uTex,0);
+
+  for(const ent of ents){
+    const mat=ent.mat;
+    gl.uniformMatrix4fv(U.uModel,false,new Float32Array(ent.model));
+    gl.uniformMatrix3fv(U.uNormalMat,false,new Float32Array(M4.normalMat(ent.model)));
+    gl.uniform3fv(U.uColor,new Float32Array(mat.color));
+    gl.uniform1f(U.uMetallic,mat.metallic||0);
+    gl.uniform1f(U.uRough,mat.rough!=null?mat.rough:0.5);
+    let emis = mat.emissive||0; if(mat===M.screen){ emis = powered?1.0:0.0; }
+    gl.uniform1f(U.uEmissive, emis);
+    gl.uniform1i(U.uUseTex, mat.tex?1:0);
+    gl.uniform1f(U.uClear, mat.clear||0);
+    gl.bindVertexArray(ent.mesh.vao);
+    gl.drawElements(gl.TRIANGLES, ent.mesh.count, gl.UNSIGNED_SHORT, 0);
+    drawCount++;
+  }
+  gl.bindVertexArray(null);
+
+  // hud stats
+  fpsAcc+=dt; fpsN++;
+  if(fpsAcc>=0.25){ document.getElementById('i-fps').textContent=Math.round(fpsN/fpsAcc);
+    document.getElementById('i-draws').textContent=drawCount; fpsAcc=0; fpsN=0; }
+
+  requestAnimationFrame(frame);
+}
+
+// boot
+drawScreen();
+requestAnimationFrame((t)=>{ last=t;
+  const boot=document.getElementById('boot'); boot.style.opacity=0; setTimeout(()=>boot.remove(),650);
+  frame(t);
+});
+</script>
+</body>
+</html>

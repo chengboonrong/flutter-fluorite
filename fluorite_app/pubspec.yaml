@@ -1,0 +1,35 @@
+name: switch2_fluorite
+description: >
+  A Nintendo Switch 2 simulator rendered with Toyota's open-source Fluorite
+  3D engine. This is the engine-native counterpart to the WebGL build in /web.
+publish_to: "none"
+version: 1.0.0
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Toyota Connected's open-source, Filament-backed 3D engine for Flutter.
+  # https://fluorite.game  ·  https://pub.dev/packages/fluorite
+  #
+  # Fluorite is an early-stage package (0.0.x at time of writing) and its
+  # native engine is compiled per-platform, so pin a known-good ref once you
+  # wire this up locally. The API used below follows the documented model:
+  # a FluoriteView widget backed by a data-oriented C++ ECS, with entities
+  # that carry Transform + Mesh + PbrMaterial components, glTF/GLB asset
+  # loading, cameras, and directional/IBL lighting.
+  fluorite: ^0.0.1
+
+  vector_math: ^2.1.4
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/models/
