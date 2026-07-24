@@ -1,0 +1,49 @@
+name: switch2_fluorite
+description: >
+  A Nintendo Switch 2 simulator rendered with Toyota's open-source Fluorite
+  3D engine (the `filament_scene` Flutter package). Engine-native counterpart
+  to the WebGL build in /web.
+publish_to: "none"
+version: 1.0.0
+
+environment:
+  # filament_scene requires Dart ^3.8.0 (Flutter 3.32+).
+  sdk: ">=3.8.0 <4.0.0"
+  flutter: ">=3.32.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Toyota Connected's open-source, Filament-backed 3D engine for Flutter.
+  # "Fluorite" is the project/demo name; the Dart package is `filament_scene`
+  # and lives in a monorepo, so depend on it via git rather than pub.dev.
+  # Pin `ref` to a known-good commit/tag before building.
+  #   repo:  https://github.com/toyota-connected/tcna-packages
+  #   site:  https://fluorite.game
+  filament_scene:
+    git:
+      url: https://github.com/toyota-connected/tcna-packages.git
+      path: packages/filament_scene
+      # Pinned to the commit this app was written against, so CI is reproducible.
+      # Bump it deliberately when you want a newer engine.
+      ref: 57b1b51c2cf48cb61760f5ea976bccfe5f75ccbb
+
+  vector_math: ^2.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    # Compiled Filament material blobs (lit.filmat / unlit.filmat) — these
+    # ship with the filament_scene example; copy them here.
+    - assets/materials/
+    # Image-based lighting environment (.hdr).
+    - assets/envs/
+    # Optional GLB models (e.g. a rounded-edge switch2.glb to replace the
+    # cube body, or detailed Joy-Con sticks).
+    - assets/models/

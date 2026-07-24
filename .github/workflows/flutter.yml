@@ -1,0 +1,73 @@
+name: Flutter CI
+
+# Installs the Flutter SDK and checks the engine-native Switch 2 app in
+# fluorite_app/. `flutter analyze` + `flutter test` validate our Dart against
+# the real `filament_scene` API (pinned in pubspec.yaml). The full native
+# render path (compiled .filmat materials, IBL .hdr, platform Filament view) is
+# out of CI scope — see fluorite_app/README notes.
+
+on:
+  pull_request:
+    paths:
+      - "fluorite_app/**"
+      - ".github/workflows/flutter.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze-and-test:
+    name: Analyze & test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fluorite_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # filament_scene requires Dart ^3.8.0 → Flutter 3.32+.
+          flutter-version: 3.32.0 # Dart 3.8
+          cache: true
+
+      - run: flutter --version
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Test
+        run: flutter test
+
+  assets:
+    name: Verify generated GLB
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fluorite_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Regenerate rounded-body GLB
+        run: node tools/gen_body_glb.mjs
+
+      - name: Assert committed GLB is up to date
+        run: |
+          if ! git diff --exit-code -- assets/models/switch2_body.glb; then
+            echo "::error::assets/models/switch2_body.glb is stale — run 'node tools/gen_body_glb.mjs' and commit."
+            exit 1
+          fi
+          echo "switch2_body.glb matches the generator output."
