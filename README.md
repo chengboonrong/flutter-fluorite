@@ -137,14 +137,24 @@ engine core lives in
 [`toyota-connected/ivi-homescreen-plugins` → `filament_view`](https://github.com/toyota-connected/ivi-homescreen-plugins/tree/v2.0/plugins/filament_view),
 which targets embedded **Linux / Wayland**.
 
-| Target | Dart compiles? | Fluorite render path? |
-|--------|:---:|:---:|
-| **Linux** | ✅ | ✅ |
-| web / android / ios / macos | ✅ (scaffolded) | ❌ no native plugin |
+| Target | Enabled | Dart compiles? | Fluorite render path? |
+|--------|:---:|:---:|:---:|
+| **Linux** | ✅ `linux/` runner | ✅ | ▲ via ivi‑homescreen (not `flutter build linux`) |
+| web / android / ios / macos | ✅ scaffolded | ✅ | ❌ no native plugin |
 
-The four platforms scaffolded via `flutter create` let the Dart *compile*
-everywhere (which is why `flutter build web` succeeds), but the actual 3D view
-only renders on **Linux**. On a Mac, build it inside a Linux container:
+**Linux is the target platform and is enabled** (`fluorite_app/linux/`). The
+other four are scaffolded so the Dart *compiles* everywhere (which is why
+`flutter build web` succeeds), but the 3D view only exists on **Linux**.
+
+> ⚠️ **`flutter build linux` doesn't complete yet.** `filament_scene` declares a
+> `linux` plugin but ships **no `linux/` CMake dir** — its native side is
+> delivered through ivi‑homescreen's `filament_view` (a Wayland compositor
+> runtime), not the standard GTK desktop embedder. So `flutter build linux`
+> fails at CMake configuration, and the engine‑native app is meant to run under
+> **ivi‑homescreen**. `flutter pub get` / `analyze` / `test` (the CI path) work
+> regardless. See [`container/README.md`](fluorite_app/container/README.md#flutter-build-linux-and-the-ivi-homescreen-caveat).
+
+On a Mac, run the verifiable path inside a Linux container:
 [`fluorite_app/container/`](fluorite_app/container/) packages the CI's exact
 Flutter 3.32 toolchain and is driven by
 [**Apple `container`**](https://github.com/apple/container) —

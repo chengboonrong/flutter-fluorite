@@ -63,7 +63,7 @@ From this directory (`fluorite_app/container/`):
 #       flutter pub get
 #       flutter analyze --no-fatal-infos
 #       flutter test
-#       flutter build linux --debug
+#       # flutter build linux — see the ivi-homescreen caveat below
 ```
 
 The whole repo is bind‑mounted (`--volume <repo>:/work`), so edits on the Mac
@@ -71,17 +71,33 @@ are visible instantly in the container and build output lands back on the host �
 no rebuild of the image when you change code. Override the image tag with
 `IMAGE=my/tag ./build.sh` (the run/ci scripts honour the same variable).
 
-## Native render path caveat
+## `flutter build linux` and the ivi‑homescreen caveat
 
-`flutter build linux` compiles the Dart and the plugin, but a *running* 3D view
-additionally needs:
+Linux desktop **is** enabled on this project (there is a `linux/` runner), and
+`flutter pub get` / `analyze` / `test` all run cleanly in the container — that's
+the path `./ci.sh` exercises and what CI verifies.
 
-- the **`filament_view`** native runtime from ivi‑homescreen, and its compiled
-  `.filmat` material blobs + an IBL `.hdr` (see the notes in the project
-  [`README`](../../README.md#run-the-fluorite-native-build)), and
-- a real **GPU / display** — a headless container has neither, so treat
-  `build linux` here as a compile check, and run the actual window on a Linux
-  host with a GPU (or an X/Wayland display forwarded in).
+`flutter build linux`, however, currently **fails at CMake configuration** with
+this version of `filament_scene`:
+
+```
+CMake Error at flutter/generated_plugins.cmake:
+  add_subdirectory given source
+  ".plugin_symlinks/filament_scene/linux" which is not an existing directory.
+```
+
+The reason: `filament_scene` declares a `linux` plugin in its `pubspec.yaml` but
+**ships no `linux/` CMake directory**. Its native side is delivered through
+ivi‑homescreen's [`filament_view`](https://github.com/toyota-connected/ivi-homescreen-plugins/tree/v2.0/plugins/filament_view)
+embedder — a Wayland compositor runtime — **not** as a standard `flutter build
+linux` (GTK) desktop plugin. So the engine‑native app is meant to run under
+**ivi‑homescreen**, not `flutter run -d linux`, and even there it additionally
+needs the compiled `.filmat` material blobs + an IBL `.hdr` and a real GPU/display
+(a headless container has neither).
+
+This is why CI stops at `analyze` + `test`: they type‑check the Dart against the
+real engine API without needing the native build, which the standard Flutter
+desktop toolchain can't produce for this package yet.
 
 For a fully interactive experience with zero setup, use the WebGL build at
 [`web/index.html`](../../web/index.html).
