@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+
+import 'package:filament_scene/filament_scene.dart';
 
 import 'switch2_scene.dart';
 
-/// Entry point for the Fluorite-native Nintendo Switch 2 simulator.
+/// Nintendo Switch 2 simulator, rendered with Toyota's Fluorite engine
+/// (the `filament_scene` Flutter package).
 ///
-/// The whole 3D surface is a single [FluoriteView] widget — Fluorite's core
-/// promise is that a console-grade renderer drops into a Flutter tree like any
-/// other widget: "add one line to pubspec.yaml and you've got a 3D engine."
-/// Flutter widgets (the control dock, the info panel) are laid out *on top of*
-/// the same widget tree via a [Stack], and they mutate the shared scene through
-/// a [Switch2Controller]. Sharing state between Flutter UI and 3D entities like
-/// this — instead of shipping commands into a foreign engine object — is the
-/// Fluorite way.
+/// The whole 3D world is a single [SceneView] widget — Fluorite's core promise
+/// is that a console-grade renderer drops into a Flutter tree like any other
+/// widget. The control dock and info panel are ordinary Flutter widgets stacked
+/// *on top of* it, mutating the shared ECS scene through [Switch2Scene].
 void main() => runApp(const Switch2App());
 
 class Switch2App extends StatelessWidget {
@@ -37,20 +37,46 @@ class SimulatorPage extends StatefulWidget {
   State<SimulatorPage> createState() => _SimulatorPageState();
 }
 
-class _SimulatorPageState extends State<SimulatorPage> {
-  late final Switch2Controller _controller;
+class _SimulatorPageState extends State<SimulatorPage> with SingleTickerProviderStateMixin {
+  final Switch2Scene _sim = Switch2Scene();
+
+  late final Ticker _ticker;
+  Duration _last = Duration.zero;
+
+  // UI-facing state (kept in sync with the scene).
   ConsoleMode _mode = ConsoleMode.handheld;
   bool _displayOn = true;
+  int _fps = 0;
+  double _fpsAccum = 0;
+  int _fpsFrames = 0;
 
   @override
   void initState() {
     super.initState();
-    _controller = Switch2Controller();
+    _ticker = createTicker(_onTick);
+  }
+
+  void _onTick(Duration elapsed) {
+    final dt = (elapsed - _last).inMicroseconds / 1e6;
+    _last = elapsed;
+    if (dt <= 0) return;
+
+    _sim.tick(dt.clamp(0.0, 0.05));
+
+    // FPS readout for the info panel.
+    _fpsAccum += dt;
+    _fpsFrames++;
+    if (_fpsAccum >= 0.25) {
+      final fps = (_fpsFrames / _fpsAccum).round();
+      _fpsAccum = 0;
+      _fpsFrames = 0;
+      if (fps != _fps) setState(() => _fps = fps);
+    }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _ticker.dispose();
     super.dispose();
   }
 
@@ -58,20 +84,25 @@ class _SimulatorPageState extends State<SimulatorPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
+        fit: StackFit.expand,
         children: [
-          // ---- The entire 3D scene lives in one widget ----------------------
-          Positioned.fill(
-            child: Switch2SceneView(
-              controller: _controller,
-              // Fluorite scenes are Hot-Reload enabled: editing buildScene()
-              // and hot-reloading re-runs it against the live engine.
-              onReady: (scene) => _controller.buildScene(scene),
-            ),
+          // ---- The entire 3D scene, in one widget --------------------------
+          SceneView(
+            filament: _sim.filament,
+            models: const [],
+            shapes: _sim.shapes,
+            cameras: _sim.cameras,
+            scene: _sim.scene,
+            onCreated: (SceneController controller) {
+              _sim.attach(controller);
+              _last = Duration.zero;
+              _ticker.start(); // begin pushing eased transforms into the ECS
+            },
           ),
 
-          // ---- Flutter UI overlay, sharing state with the ECS ---------------
+          // ---- Flutter UI overlay ------------------------------------------
           const _Brand(),
-          _InfoPanel(mode: _mode, displayOn: _displayOn, controller: _controller),
+          _InfoPanel(mode: _mode, displayOn: _displayOn, fps: _fps),
           Align(
             alignment: Alignment.bottomCenter,
             child: _ControlDock(
@@ -79,15 +110,15 @@ class _SimulatorPageState extends State<SimulatorPage> {
               displayOn: _displayOn,
               onMode: (m) {
                 setState(() => _mode = m);
-                _controller.setMode(m); // animates Joy-Con / kickstand entities
+                _sim.setMode(m);
               },
               onTogglePower: () {
                 setState(() => _displayOn = !_displayOn);
-                _controller.setDisplayPowered(_displayOn);
+                _sim.setPowered(_displayOn);
               },
-              onCycleApp: _controller.cycleApp,
-              onToggleSpin: _controller.toggleAutoOrbit,
-              onResetView: _controller.resetCamera,
+              onCycleApp: _sim.cycleApp,
+              onToggleSpin: _sim.toggleAutoOrbit,
+              onResetView: _sim.resetView,
             ),
           ),
         ],
@@ -97,7 +128,7 @@ class _SimulatorPageState extends State<SimulatorPage> {
 }
 
 // ---------------------------------------------------------------------------
-// Overlay widgets — plain Flutter, composited over the FluoriteView.
+// Overlay widgets — plain Flutter composited over the SceneView.
 // ---------------------------------------------------------------------------
 
 class _Brand extends StatelessWidget {
@@ -150,10 +181,10 @@ class _Dot extends StatelessWidget {
 }
 
 class _InfoPanel extends StatelessWidget {
-  const _InfoPanel({required this.mode, required this.displayOn, required this.controller});
+  const _InfoPanel({required this.mode, required this.displayOn, required this.fps});
   final ConsoleMode mode;
   final bool displayOn;
-  final Switch2Controller controller;
+  final int fps;
 
   @override
   Widget build(BuildContext context) {
@@ -184,10 +215,7 @@ class _InfoPanel extends StatelessWidget {
           row('Left Joy-Con 2', detached ? 'Detached' : 'Attached', const Color(0xFF16B7E6)),
           row('Right Joy-Con 2', detached ? 'Detached' : 'Attached', const Color(0xFFFF5A5F)),
           row('Display', displayOn ? 'On' : 'Off'),
-          ValueListenableBuilder<int>(
-            valueListenable: controller.frameRate,
-            builder: (_, fps, __) => row('FPS', '$fps'),
-          ),
+          row('FPS', '$fps'),
         ]),
       ),
     );

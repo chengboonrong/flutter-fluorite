@@ -1,22 +1,16 @@
 import 'dart:math' as math;
 
-import 'package:flutter/widgets.dart';
-import 'package:vector_math/vector_math_64.dart';
+import 'package:flutter/material.dart' show Color;
+import 'package:vector_math/vector_math_64.dart' show Vector2, Vector3, Quaternion;
 
-// The Fluorite package surface used below (FluoriteView, Scene, Entity,
-// Transform, MeshBuilder, PbrMaterial, DirectionalLight, PerspectiveCamera,
-// OrbitController, System) follows Toyota Connected's documented model:
-// a Flutter widget backed by a data-oriented C++ ECS, Filament for rendering,
-// and glTF/GLB for assets. Types are imported here so the file reads as a real
-// integration; pin the package in pubspec.yaml before building locally.
-import 'package:fluorite/fluorite.dart';
+// Toyota Connected's engine. "Fluorite" is the project/demo name; the Flutter
+// package is `filament_scene`, from github.com/toyota-connected/tcna-packages.
+// It wraps Google's Filament (Vulkan/Metal/GL) behind a data-oriented C++ ECS
+// and surfaces it to Dart. See pubspec.yaml for the dependency.
+import 'package:filament_scene/filament_scene.dart';
+import 'package:filament_scene/generated/messages.g.dart';
 
-/// The four "scenes" the display can show. In a shipped build these would be
-/// separate render targets or textures; here each is a material swap on the
-/// screen entity, mirroring the WebGL build's canvas-texture approach.
-enum DisplayApp { home, marioKart, zelda, settings }
-
-/// Physical configuration of the console, matching the WebGL simulator.
+/// Physical configuration of the console.
 enum ConsoleMode {
   handheld('Handheld'),
   tabletop('Tabletop'),
@@ -26,309 +20,361 @@ enum ConsoleMode {
   final String label;
 }
 
-/// The Flutter widget that hosts the 3D scene. This is the *only* place the
-/// engine touches the widget tree — everything else is data.
-class Switch2SceneView extends StatelessWidget {
-  const Switch2SceneView({
-    super.key,
-    required this.controller,
-    required this.onReady,
-  });
+/// What the display is showing. Each value maps to a screen material.
+enum DisplayApp { home, marioKart, zelda, settings }
 
-  final Switch2Controller controller;
-  final void Function(Scene scene) onReady;
+/// Builds and drives the Nintendo Switch 2 scene on the Filament/Fluorite
+/// engine. All geometry is authored as ECS entities (`Cube`s parented into a
+/// hierarchy); the same layout as the WebGL build in /web.
+///
+/// Construction is done once (the [shapes]/[cameras]/[scene] lists handed to
+/// the [SceneView]); after the engine calls [attach] with a live
+/// [SceneController], mode/power/app changes are pushed back through the ECS —
+/// per-frame eased transforms via [tick], and material swaps via
+/// [SceneController.updateFilamentScene].
+class Switch2Scene {
+  Switch2Scene() {
+    _build();
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    // A FluoriteView is a normal Widget: "lightweight, composable, put it
-    // anywhere." Multiple FluoriteViews can even share one Scene to render the
-    // same world from different cameras.
-    return FluoriteView(
-      controller: controller.engine,
-      onSceneReady: onReady,
-      // Drag to orbit, pinch/scroll to dolly — handled by the engine's input.
-      cameraController: controller.orbit,
+  /// Pigeon-generated bridge to the native Filament view. The [SceneView]
+  /// widget requires one; entities use it to queue transform updates.
+  final FilamentViewApi filament = FilamentViewApi();
+
+  SceneController? _controller;
+
+  // ---- Materials --------------------------------------------------------
+  // Filament materials are compiled `.filmat` blobs. `lit.filmat` and
+  // `unlit.filmat` ship with the filament_scene example; drop them under
+  // assets/materials/ (see assets/models/README.md). Base color / metallic /
+  // roughness are pushed as material parameters.
+  Material _lit(Color color, {double metallic = 0.0, double roughness = 0.5}) {
+    return Material.asset(
+      'assets/materials/lit.filmat',
+      parameters: [
+        MaterialParameter.baseColor(color: color),
+        MaterialParameter.metallic(value: metallic),
+        MaterialParameter.roughness(value: roughness),
+      ],
     );
   }
-}
 
-/// Drives the scene: builds entities, animates mode transitions, swaps the
-/// display material, and exposes a live FPS value to the Flutter overlay.
-class Switch2Controller {
-  Switch2Controller();
-
-  /// Backing engine controller for the [FluoriteView].
-  final FluoriteController engine = FluoriteController();
-
-  /// Orbit camera the view binds its gestures to.
-  final OrbitCameraController orbit = OrbitCameraController(
-    target: Vector3(0, 0.2, 0),
-    distance: 15.5,
-    theta: -0.5,
-    phi: 1.15,
-    minDistance: 8,
-    maxDistance: 30,
-    autoOrbit: true,
-    autoOrbitSpeed: 0.28,
-  );
-
-  /// FPS surfaced to the info panel; the engine ticks this each frame.
-  final ValueNotifier<int> frameRate = ValueNotifier<int>(0);
-
-  late Scene _scene;
-
-  // Entities we animate after construction.
-  Entity? _leftJoyCon;
-  Entity? _rightJoyCon;
-  Entity? _kickstand;
-  Entity? _screen;
-
-  DisplayApp _app = DisplayApp.home;
-  bool _powered = true;
-
-  // ---- Palette (linear-ish PBR base colors), matched to the WebGL build ----
-  static final _bodyBlack = PbrMaterial(baseColor: Color(0xFF0E1013), metallic: 0.15, roughness: 0.42, clearCoat: 0.6);
-  static final _joyLeft   = PbrMaterial(baseColor: Color(0xFF068CC7), metallic: 0.05, roughness: 0.45, clearCoat: 0.5);
-  static final _joyRight  = PbrMaterial(baseColor: Color(0xFFEB2933), metallic: 0.05, roughness: 0.45, clearCoat: 0.5);
-  static final _rail      = PbrMaterial(baseColor: Color(0xFF4D4F5C), metallic: 0.9,  roughness: 0.28);
-  static final _stick     = PbrMaterial(baseColor: Color(0xFF0A0A0D), metallic: 0.1,  roughness: 0.6);
-  static final _btnLight  = PbrMaterial(baseColor: Color(0xFFB8BCCC), metallic: 0.2,  roughness: 0.5);
-  static final _btnDark   = PbrMaterial(baseColor: Color(0xFF1A1C21), metallic: 0.2,  roughness: 0.5);
-  static final _metal     = PbrMaterial(baseColor: Color(0xFF8C919E), metallic: 0.95, roughness: 0.25);
-  static final _glass     = PbrMaterial(baseColor: Color(0xFF050508), metallic: 0.0,  roughness: 0.08, clearCoat: 1.0);
-
-  /// Called once when the engine hands us a live [Scene]. Builds the world.
-  ///
-  /// The structure is 1:1 with `buildEntities()` in /web/index.html — same
-  /// meshes, same materials, same layout — so the two renderers stay in sync.
-  void buildScene(Scene scene) {
-    _scene = scene;
-
-    // ---- Environment: image-based lighting + key/fill/rim directionals ----
-    scene.setImageBasedLight(intensity: 30000, source: IblSource.studioSoft());
-    scene.add(Entity('key')
-      ..set(DirectionalLight(color: const Color(0xFFFFFAF0), intensity: 90000, direction: Vector3(-0.5, -0.9, -0.7))));
-    scene.add(Entity('fill')
-      ..set(DirectionalLight(color: const Color(0xFF8CADF2), intensity: 22000, direction: Vector3(0.8, -0.35, 0.5))));
-    scene.add(Entity('rim')
-      ..set(DirectionalLight(color: const Color(0xFFE68C8C), intensity: 14000, direction: Vector3(0.1, 0.4, 0.9))));
-
-    scene.setCamera(PerspectiveCamera(fovDegrees: 50, near: 0.1, far: 100));
-
-    // ---- Reusable meshes (rounded boxes / cylinders / spheres) ------------
-    final bodyMesh = MeshBuilder.roundedBox(width: 9.4, height: 4.7, depth: 0.62, radius: 0.42);
-    final screenMesh = MeshBuilder.roundedBox(width: 8.05, height: 3.9, depth: 0.02, radius: 0.16);
-    final glassMesh = MeshBuilder.roundedBox(width: 8.55, height: 4.35, depth: 0.10, radius: 0.30);
-    final joyMesh = MeshBuilder.roundedBox(width: 1.55, height: 4.7, depth: 0.62, radius: 0.42);
-    final railMesh = MeshBuilder.roundedBox(width: 0.14, height: 4.2, depth: 0.30, radius: 0.05);
-    final kickMesh = MeshBuilder.roundedBox(width: 3.6, height: 3.4, depth: 0.08, radius: 0.18);
-    final stickMesh = MeshBuilder.cylinder(radiusTop: 0.34, radiusBottom: 0.40, height: 0.34);
-    final btnMesh = MeshBuilder.sphere(radius: 0.20);
-    final smallBtnMesh = MeshBuilder.sphere(radius: 0.13);
-    final dpadMesh = MeshBuilder.roundedBox(width: 0.24, height: 0.72, depth: 0.14, radius: 0.05);
-    final floorMesh = MeshBuilder.plane(width: 60, height: 60);
-
-    // ---- Central tablet ---------------------------------------------------
-    scene.add(Entity('floor')
-      ..set(Transform(position: Vector3(0, -3.5, 0)))
-      ..set(MeshInstance(floorMesh))
-      ..set(PbrMaterial(baseColor: const Color(0xFF0D0F12), roughness: 0.9)));
-
-    scene.add(Entity('body')..set(Transform())..set(MeshInstance(bodyMesh))..set(_bodyBlack));
-    scene.add(Entity('glass')
-      ..set(Transform(position: Vector3(0, 0, 0.30)))
-      ..set(MeshInstance(glassMesh))
-      ..set(_glass));
-
-    // Emissive display; its material is swapped by [_applyDisplay].
-    _screen = Entity('screen')
-      ..set(Transform(position: Vector3(0, 0, 0.37)))
-      ..set(MeshInstance(screenMesh));
-    scene.add(_screen!);
-    _applyDisplay();
-
-    // Power + volume buttons on the top edge.
-    for (final x in const [-1.0, -1.7, -2.3]) {
-      scene.add(Entity('edgeBtn$x')
-        ..set(Transform(position: Vector3(x, 2.42, 0.0), rotation: Quaternion.axisAngle(Vector3(1, 0, 0), math.pi / 2)))
-        ..set(MeshInstance(MeshBuilder.cylinder(radiusTop: 0.12, radiusBottom: 0.12, height: 0.10)))
-        ..set(_metal));
-    }
-
-    // ---- Kickstand (starts folded, hinges out for tabletop/detached) ------
-    _kickstand = Entity('kickstand')
-      ..set(Transform(position: Vector3(0, -1.2, -0.32)))
-      ..set(MeshInstance(kickMesh))
-      ..set(_bodyBlack)
-      ..enabled = false;
-    scene.add(_kickstand!);
-
-    // ---- Joy-Cons ---------------------------------------------------------
-    _leftJoyCon = _buildJoyCon(scene, side: -1, joyMesh: joyMesh, railMesh: railMesh, stickMesh: stickMesh, btnMesh: btnMesh, smallBtnMesh: smallBtnMesh, dpadMesh: dpadMesh);
-    _rightJoyCon = _buildJoyCon(scene, side: 1, joyMesh: joyMesh, railMesh: railMesh, stickMesh: stickMesh, btnMesh: btnMesh, smallBtnMesh: smallBtnMesh, dpadMesh: dpadMesh);
-
-    // ---- Systems: drive per-frame animation + FPS readout -----------------
-    scene.addSystem(_ModeAnimationSystem(this));
-    scene.addSystem(FrameStatsSystem(onFps: (fps) => frameRate.value = fps));
+  Material _emissive(Color color) {
+    // Unlit material for the screen so the display reads as "lit" regardless
+    // of scene lighting. A real build would bind an emissive texture here via
+    // MaterialParameter.texture(...); we use a flat color per app.
+    return Material.asset(
+      'assets/materials/unlit.filmat',
+      parameters: [MaterialParameter.baseColor(color: color)],
+    );
   }
 
-  Entity _buildJoyCon(
-    Scene scene, {
-    required int side,
-    required Mesh joyMesh,
-    required Mesh railMesh,
-    required Mesh stickMesh,
-    required Mesh btnMesh,
-    required Mesh smallBtnMesh,
-    required Mesh dpadMesh,
-  }) {
-    final isLeft = side < 0;
-    final mat = isLeft ? _joyLeft : _joyRight;
-    final baseX = isLeft ? -4.6 : 4.6;
+  // Palette matched to the WebGL simulator.
+  late final Material _mBody = _lit(const Color(0xFF0E1013), metallic: 0.15, roughness: 0.42);
+  late final Material _mJoyLeft = _lit(const Color(0xFF068CC7), metallic: 0.05, roughness: 0.45);
+  late final Material _mJoyRight = _lit(const Color(0xFFEB2933), metallic: 0.05, roughness: 0.45);
+  late final Material _mRail = _lit(const Color(0xFF4D4F5C), metallic: 0.9, roughness: 0.28);
+  late final Material _mStick = _lit(const Color(0xFF0A0A0D), metallic: 0.1, roughness: 0.6);
+  late final Material _mBtnLight = _lit(const Color(0xFFB8BCCC), metallic: 0.2, roughness: 0.5);
+  late final Material _mBtnDark = _lit(const Color(0xFF1A1C21), metallic: 0.2, roughness: 0.5);
+  late final Material _mMetal = _lit(const Color(0xFF8C919E), metallic: 0.95, roughness: 0.25);
+  late final Material _mFloor = _lit(const Color(0xFF0D0F12), roughness: 0.9);
 
-    // Parent entity — children inherit its transform, so animating this one
-    // node moves the whole controller (the ECS handles the hierarchy).
-    final root = Entity(isLeft ? 'joyLeft' : 'joyRight')
-      ..set(Transform(position: Vector3(baseX, 0, 0)))
-      ..set(MeshInstance(joyMesh))
-      ..set(mat);
-    scene.add(root);
+  // ---- Entities we keep handles to (for animation / material swaps) ------
+  late final Cube _body;
+  late final Cube _leftJoyCon;
+  late final Cube _rightJoyCon;
+  late final Cube _kickstand;
+  late Cube _screen; // rebuilt on app/power change
+  int? _screenIndex; // its slot in [_shapes]
 
-    void child(String name, Mesh mesh, PbrMaterial m, Vector3 pos, {Quaternion? rot}) {
-      scene.add(Entity(name)
-        ..parent = root
-        ..set(Transform(position: pos, rotation: rot ?? Quaternion.identity()))
-        ..set(MeshInstance(mesh))
-        ..set(m));
+  final List<Shape> _shapes = <Shape>[];
+  final List<Camera> _cameras = <Camera>[];
+  late final Scene _scene;
+  late final EntityGUID _cameraId;
+
+  List<Shape> get shapes => List.unmodifiable(_shapes);
+  List<Camera> get cameras => _cameras;
+  Scene get scene => _scene;
+
+  // ---- Public state -----------------------------------------------------
+  ConsoleMode mode = ConsoleMode.handheld;
+  bool powered = true;
+  DisplayApp app = DisplayApp.home;
+
+  Color _screenColor() {
+    if (!powered) return const Color(0xFF000000);
+    return switch (app) {
+      DisplayApp.home => const Color(0xFF20252E),
+      DisplayApp.marioKart => const Color(0xFFE8412E),
+      DisplayApp.zelda => const Color(0xFF2E9E6B),
+      DisplayApp.settings => const Color(0xFF12151B),
+    };
+  }
+
+  // -----------------------------------------------------------------------
+  // Construction
+  // -----------------------------------------------------------------------
+  void _build() {
+    final noRot = Quaternion.identity();
+
+    // Floor (a thin flat cube).
+    _shapes.add(Cube(
+      id: generateGuid(),
+      name: 'floor',
+      position: Vector3(0, -3.5, 0),
+      scale: Vector3(60, 0.1, 60),
+      rotation: noRot,
+      material: _mFloor,
+      castShadows: false,
+    ));
+
+    // Central tablet body — the ROOT of the console hierarchy. Everything else
+    // is parented to it, so moving/rotating the body moves the whole console
+    // (used for the turntable auto-orbit) while children keep their local
+    // offsets (used for the Joy-Con detach animation).
+    _body = Cube(
+      id: generateGuid(),
+      name: 'body',
+      position: Vector3(0, 0, 0),
+      scale: Vector3(9.4, 4.7, 0.62),
+      rotation: noRot,
+      material: _mBody,
+    );
+    _shapes.add(_body);
+
+    // Emissive screen, parented to the body.
+    _screen = Cube(
+      id: generateGuid(),
+      name: 'screen',
+      parentId: _body.id,
+      position: Vector3(0, 0, 0.34),
+      scale: Vector3(8.05, 3.9, 0.02),
+      rotation: noRot,
+      material: _emissive(_screenColor()),
+    );
+    _screenIndex = _shapes.length;
+    _shapes.add(_screen);
+
+    // Power + volume buttons on the top edge.
+    for (final (i, x) in const [-1.0, -1.7, -2.3].indexed) {
+      _shapes.add(Cube(
+        id: generateGuid(),
+        name: 'edgeBtn$i',
+        parentId: _body.id,
+        position: Vector3(x, 2.42, 0.0),
+        scale: Vector3(0.22, 0.06, 0.24),
+        rotation: noRot,
+        material: _mMetal,
+      ));
     }
 
-    // Magnetic rail down the inner edge (Switch 2's magnetic Joy-Con attach).
-    child('${root.name}.rail', railMesh, _rail, Vector3(isLeft ? 0.80 : -0.80, 0, 0));
+    // Kickstand — folded flat against the back until tabletop/detached.
+    _kickstand = Cube(
+      id: generateGuid(),
+      name: 'kickstand',
+      parentId: _body.id,
+      position: Vector3(0, -1.2, -0.32),
+      scale: Vector3(3.6, 3.4, 0.08),
+      rotation: Quaternion.axisAngle(Vector3(1, 0, 0), -0.5),
+      material: _mBody,
+    );
+    _shapes.add(_kickstand);
 
-    // Analog stick.
+    // Joy-Cons (each parents its own buttons).
+    _leftJoyCon = _buildJoyCon(side: -1);
+    _rightJoyCon = _buildJoyCon(side: 1);
+
+    // Orbit camera rig — the engine handles drag-to-orbit / pinch-to-zoom
+    // natively; we seed the starting framing.
+    _cameraId = generateGuid();
+    _cameras.add(Camera(
+      id: _cameraId,
+      orbitOriginPoint: Vector3(0, 0.2, 0),
+      orbitDistance: 15.5,
+      orbitAngles: Vector2(-0.5, 1.15),
+      targetPoint: Vector3(0, 0.2, 0),
+    ));
+
+    // Scene: soft studio IBL + key/fill/rim directionals, matching the
+    // three-light setup in the WebGL shader.
+    _scene = Scene(
+      skybox: ColorSkybox(color: const Color(0xFF0A0C12)),
+      indirectLight: HdrIndirectLight.asset('assets/envs/studio_soft.hdr'),
+      lights: [
+        Light(
+          id: generateGuid(),
+          type: LightType.sun,
+          color: const Color(0xFFFFFAF0),
+          intensity: 90000,
+          direction: Vector3(-0.5, -0.9, -0.7),
+          castShadows: true,
+        ),
+        Light(
+          id: generateGuid(),
+          type: LightType.directional,
+          color: const Color(0xFF8CADF2),
+          intensity: 22000,
+          direction: Vector3(0.8, -0.35, 0.5),
+        ),
+        Light(
+          id: generateGuid(),
+          type: LightType.directional,
+          color: const Color(0xFFE68C8C),
+          intensity: 14000,
+          direction: Vector3(0.1, 0.4, 0.9),
+        ),
+      ],
+    );
+  }
+
+  Cube _buildJoyCon({required int side}) {
+    final isLeft = side < 0;
+    final material = isLeft ? _mJoyLeft : _mJoyRight;
+    final baseX = isLeft ? -4.6 : 4.6;
+    final noRot = Quaternion.identity();
+
+    final root = Cube(
+      id: generateGuid(),
+      name: isLeft ? 'joyLeft' : 'joyRight',
+      parentId: _body.id,
+      position: Vector3(baseX, 0, 0),
+      scale: Vector3(1.55, 4.7, 0.62),
+      rotation: noRot,
+      material: material,
+    );
+    _shapes.add(root);
+
+    void child(String name, Vector3 pos, Vector3 scale, Material m, {Quaternion? rot}) {
+      _shapes.add(Cube(
+        id: generateGuid(),
+        name: name,
+        parentId: root.id,
+        position: pos,
+        scale: scale,
+        rotation: rot ?? noRot,
+        material: m,
+      ));
+    }
+
+    // Magnetic attach rail down the inner edge.
+    child('${root.name}.rail', Vector3(isLeft ? 0.80 : -0.80, 0, 0), Vector3(0.14, 4.2, 0.30), _mRail);
+
+    // Analog stick (stubby cube; the example ships GLB sticks you can swap in).
     final stickY = isLeft ? 1.15 : 0.55;
-    child('${root.name}.stick', stickMesh, _stick, Vector3(0, stickY, 0.42),
-        rot: Quaternion.axisAngle(Vector3(1, 0, 0), math.pi / 2));
+    child('${root.name}.stick', Vector3(0, stickY, 0.42), Vector3(0.7, 0.7, 0.34), _mStick);
 
     if (isLeft) {
-      // D-pad (Switch 2 left Joy-Con has a proper d-pad) rendered as a plus.
-      child('dpadV', dpadMesh, _btnDark, Vector3(0, -0.95, 0.34));
-      child('dpadH', dpadMesh, _btnDark, Vector3(0, -0.95, 0.34),
-          rot: Quaternion.axisAngle(Vector3(0, 0, 1), math.pi / 2));
-      child('minus', smallBtnMesh, _btnDark, Vector3(0.35, 1.85, 0.34));
+      child('dpadV', Vector3(0, -0.95, 0.34), Vector3(0.24, 0.72, 0.14), _mBtnDark);
+      child('dpadH', Vector3(0, -0.95, 0.34), Vector3(0.72, 0.24, 0.14), _mBtnDark);
+      child('minus', Vector3(0.35, 1.85, 0.34), Vector3(0.26, 0.26, 0.1), _mBtnDark);
     } else {
-      // ABXY face buttons.
-      child('btnX', btnMesh, _btnLight, Vector3(0, -0.53, 0.34));
-      child('btnB', btnMesh, _btnLight, Vector3(0, -1.37, 0.34));
-      child('btnY', btnMesh, _btnLight, Vector3(-0.42, -0.95, 0.34));
-      child('btnA', btnMesh, _btnLight, Vector3(0.42, -0.95, 0.34));
-      child('plus', smallBtnMesh, _btnDark, Vector3(-0.35, 1.85, 0.34));
-      child('home', smallBtnMesh, _metal, Vector3(-0.35, -1.85, 0.34));
-      child('capture', smallBtnMesh, _btnDark, Vector3(0.35, -1.85, 0.34));
+      // ABXY.
+      child('btnX', Vector3(0, -0.53, 0.34), Vector3(0.4, 0.4, 0.16), _mBtnLight);
+      child('btnB', Vector3(0, -1.37, 0.34), Vector3(0.4, 0.4, 0.16), _mBtnLight);
+      child('btnY', Vector3(-0.42, -0.95, 0.34), Vector3(0.4, 0.4, 0.16), _mBtnLight);
+      child('btnA', Vector3(0.42, -0.95, 0.34), Vector3(0.4, 0.4, 0.16), _mBtnLight);
+      child('plus', Vector3(-0.35, 1.85, 0.34), Vector3(0.26, 0.26, 0.1), _mBtnDark);
+      child('home', Vector3(-0.35, -1.85, 0.34), Vector3(0.26, 0.26, 0.1), _mMetal);
+      child('capture', Vector3(0.35, -1.85, 0.34), Vector3(0.26, 0.26, 0.1), _mBtnDark);
     }
     return root;
   }
 
-  // ---- Public controls (called from the Flutter overlay) ------------------
+  // -----------------------------------------------------------------------
+  // Live control (called after [attach])
+  // -----------------------------------------------------------------------
+  void attach(SceneController controller) => _controller = controller;
 
-  ConsoleMode mode = ConsoleMode.handheld;
+  void setMode(ConsoleMode m) => mode = m; // eased toward by [tick]
 
-  void setMode(ConsoleMode m) {
-    mode = m;
-    _kickstand?.enabled = m != ConsoleMode.handheld;
-    // The actual eased transforms are applied each frame by
-    // [_ModeAnimationSystem], which reads [mode] as its target.
-  }
-
-  void setDisplayPowered(bool on) {
-    _powered = on;
-    _applyDisplay();
+  void setPowered(bool on) {
+    powered = on;
+    _refreshScreenMaterial();
   }
 
   void cycleApp() {
-    _app = DisplayApp.values[(_app.index + 1) % DisplayApp.values.length];
-    if (!_powered) setDisplayPowered(true);
-    _applyDisplay();
+    app = DisplayApp.values[(app.index + 1) % DisplayApp.values.length];
+    if (!powered) powered = true;
+    _refreshScreenMaterial();
   }
 
-  void toggleAutoOrbit() => orbit.autoOrbit = !orbit.autoOrbit;
-  void resetCamera() => orbit.reset(theta: -0.5, phi: 1.15, distance: 15.5);
-
-  /// Swaps the emissive material on the screen entity for the current app.
-  /// In the WebGL build this is a live <canvas> texture; here it is a
-  /// pre-rendered GLB/texture per app (loaded once, cached by the engine).
-  void _applyDisplay() {
-    final screen = _screen;
-    if (screen == null) return;
-    if (!_powered) {
-      screen.set(PbrMaterial(baseColor: const Color(0xFF000000), emissive: 0.0));
-      return;
-    }
-    final texture = switch (_app) {
-      DisplayApp.home => 'assets/models/screen_home.ktx2',
-      DisplayApp.marioKart => 'assets/models/screen_mariokart.ktx2',
-      DisplayApp.zelda => 'assets/models/screen_zelda.ktx2',
-      DisplayApp.settings => 'assets/models/screen_settings.ktx2',
-    };
-    screen.set(PbrMaterial.emissiveTexture(texture, intensity: 1.15));
+  /// Rebuilds the screen cube with a new material and pushes the updated shape
+  /// list to the engine. Material is immutable on a [Shape], so we swap the
+  /// entity (keeping its GUID) and re-send via the controller — the confirmed
+  /// runtime-update path in [SceneController.updateFilamentScene].
+  void _refreshScreenMaterial() {
+    final idx = _screenIndex;
+    if (idx == null) return;
+    _screen = Cube(
+      id: _screen.id,
+      name: 'screen',
+      parentId: _body.id,
+      position: Vector3(0, 0, 0.34),
+      scale: Vector3(8.05, 3.9, 0.02),
+      rotation: Quaternion.identity(),
+      material: _emissive(_screenColor()),
+    );
+    _shapes[idx] = _screen;
+    _controller?.updateFilamentScene(shapes: _shapes);
   }
 
-  void dispose() {
-    engine.dispose();
-    frameRate.dispose();
+  // ---- Per-frame animation ----------------------------------------------
+  // Eased state, matching the WebGL build's targets.
+  double _leftX = 0, _rightX = 0, _drop = 0, _lift = 0, _tilt = 0, _kick = 0, _spin = 0;
+  bool autoOrbit = true;
+
+  void toggleAutoOrbit() => autoOrbit = !autoOrbit;
+
+  void resetView() {
+    // Re-seed the orbit rig. (The native camera-gesture controller also
+    // exposes a recenter; here we just reset our turntable.)
+    _spin = 0;
+    _body.setLocalRotation(_composeBodyRotation());
+    _body.updateTransform();
   }
-}
 
-/// Per-frame system that eases the console between [ConsoleMode]s — sliding the
-/// Joy-Cons out and dropping them for "detached", tilting the tablet back and
-/// swinging the kickstand for "tabletop". Same targets as the WebGL build.
-class _ModeAnimationSystem extends System {
-  _ModeAnimationSystem(this.c);
-  final Switch2Controller c;
+  Quaternion _composeBodyRotation() {
+    final turntable = Quaternion.axisAngle(Vector3(0, 1, 0), _spin);
+    final tilt = Quaternion.axisAngle(Vector3(1, 0, 0), _tilt);
+    return turntable * tilt;
+  }
 
-  // Current eased values.
-  double _leftX = 0, _rightX = 0, _drop = 0, _lift = 0, _tilt = 0, _kick = 0;
+  /// Advance the animation by [dt] seconds and push transforms into the ECS.
+  void tick(double dt) {
+    if (_controller == null) return;
 
-  @override
-  void update(double dt, Scene scene) {
-    final m = c.mode;
-    final tgtLeftX = m == ConsoleMode.detached ? -3.2 : 0.0;
-    final tgtRightX = m == ConsoleMode.detached ? 3.2 : 0.0;
-    final tgtDrop = m == ConsoleMode.detached ? -1.2 : 0.0;
-    final tabletop = m != ConsoleMode.handheld;
+    final detached = mode == ConsoleMode.detached;
+    final tabletop = mode != ConsoleMode.handheld;
+    final tgtLeftX = detached ? -3.2 : 0.0;
+    final tgtRightX = detached ? 3.2 : 0.0;
+    final tgtDrop = detached ? -1.2 : 0.0;
     final tgtLift = tabletop ? 1.4 : 0.0;
     final tgtTilt = tabletop ? -0.28 : 0.0;
     final tgtKick = tabletop ? 1.0 : 0.0;
 
-    final k = 1 - math.pow(0.001, dt).toDouble(); // frame-rate independent ease
+    final k = 1 - math.pow(0.001, dt).toDouble(); // frame-rate-independent smoothing
     _leftX += (tgtLeftX - _leftX) * k;
     _rightX += (tgtRightX - _rightX) * k;
     _drop += (tgtDrop - _drop) * k;
     _lift += (tgtLift - _lift) * k;
     _tilt += (tgtTilt - _tilt) * k;
     _kick += (tgtKick - _kick) * k;
+    if (autoOrbit) _spin += dt * 0.28;
 
-    // Whole console leans back + lifts for tabletop.
-    final root = Quaternion.axisAngle(Vector3(1, 0, 0), _tilt);
-    for (final name in const ['body', 'glass', 'screen']) {
-      scene.byName(name)?.get<Transform>()
-        ?..rotation = root
-        ..position.y = _lift;
-    }
+    // Root body: lift + tilt + turntable spin. Children inherit this.
+    _body.setLocalPosition(Vector3(0, _lift, 0));
+    _body.setLocalRotation(_composeBodyRotation());
+    _body.updateTransform();
 
-    c.leftJoyConTransform?..position.setValues(-4.6 + _leftX, _drop + _lift, 0);
-    c.rightJoyConTransform?..position.setValues(4.6 + _rightX, _drop + _lift, 0);
+    // Joy-Cons slide out and drop for "detached".
+    _leftJoyCon.setLocalPosition(Vector3(-4.6 + _leftX, _drop, 0));
+    _leftJoyCon.updateTransform();
+    _rightJoyCon.setLocalPosition(Vector3(4.6 + _rightX, _drop, 0));
+    _rightJoyCon.updateTransform();
 
     // Kickstand hinges out from the back-bottom edge.
-    c.kickstandTransform
-      ?..position.setValues(0, -1.2 + _lift, -0.32)
-      ..rotation = Quaternion.axisAngle(Vector3(1, 0, 0), _tilt - (0.5 + _kick * 0.55));
+    _kickstand.setLocalRotation(Quaternion.axisAngle(Vector3(1, 0, 0), -(0.5 + _kick * 0.55)));
+    _kickstand.updateTransform();
   }
-}
-
-// Small accessors so the animation system stays readable.
-extension on Switch2Controller {
-  Transform? get leftJoyConTransform => _leftJoyCon?.get<Transform>();
-  Transform? get rightJoyConTransform => _rightJoyCon?.get<Transform>();
-  Transform? get kickstandTransform => _kickstand?.get<Transform>();
 }

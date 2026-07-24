@@ -1,13 +1,14 @@
-# Assets
+# Models (optional GLB)
 
-Drop the display textures and any GLB models here before running the
-Fluorite‑native build. `switch2_scene.dart` expects these emissive screen
-textures (KTX2 or PNG):
+The scene is built entirely from `Cube` primitives, so **no models are
+required to run**. This folder is for optional glTF/GLB upgrades loaded via
+`filament_scene`'s `Model`/`GlbModel` and passed to `SceneView(models: [...])`:
 
-- `screen_home.ktx2` — Switch 2 home menu
-- `screen_mariokart.ktx2` — Mario Kart World splash
-- `screen_zelda.ktx2` — Zelda splash
-- `screen_settings.ktx2` — System Settings
+- `switch2.glb` — a rounded-edge console body to replace the cube body for a
+  more faithful silhouette.
+- `joycon_stick.glb` — detailed analog sticks.
 
-The web build renders these live from a `<canvas>` (see `drawScreen()` in
-`../../web/index.html`); you can bake frames from it to produce the textures.
+Fluorite's asset workflow is Blender → glTF/GLB → `Model.glb('assets/models/…')`.
+The live display is a flat colored material here; to render the animated home
+menu from the WebGL build, bake frames to textures and bind them with
+`MaterialParameter.texture(...)` on `unlit.filmat`.

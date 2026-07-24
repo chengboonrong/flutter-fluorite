@@ -27,9 +27,11 @@ heavy with slow start‑up for embedded automotive use.
 Key facts that shaped this project:
 
 - **It's a Flutter package, not a separate runtime.** Add one line to
-  `pubspec.yaml` and you get a 3D engine. The scene is a **`FluoriteView`
-  widget** — "lightweight, composable, put it anywhere" — so 3D and Flutter UI
-  live in the same widget tree and share state.
+  `pubspec.yaml` and you get a 3D engine. "Fluorite" is the project/demo name;
+  the published Dart package is **`filament_scene`**
+  ([toyota-connected/tcna-packages](https://github.com/toyota-connected/tcna-packages)).
+  The scene is a **`SceneView` widget** — "lightweight, composable, put it
+  anywhere" — so 3D and Flutter UI live in the same widget tree and share state.
 - **Filament under the hood.** Rendering is Google's **Filament** engine, using
   modern GPU APIs (**Vulkan**) for physically based rendering, accurate lighting,
   post‑processing, and custom shaders — hardware‑accelerated, console‑grade
@@ -40,7 +42,7 @@ Key facts that shaped this project:
 - **glTF / GLB assets + Hot Reload.** Artists work in Blender and hand off
   `.gltf`/`.glb`; developers write interaction logic in Dart. Fluorite scenes
   support Flutter **Hot Reload**.
-- **Multiple simultaneous views.** Several `FluoriteView`s can render the same
+- **Multiple simultaneous views.** Several `SceneView`s can render the same
   scene from different cameras.
 
 Built entirely on open foundations (Flutter, Dart, Filament) and proven on
@@ -85,24 +87,43 @@ python3 -m http.server -d web 8000   # then visit http://localhost:8000
 
 ### Run the Fluorite‑native build
 
-[`fluorite_app/`](fluorite_app/) is a real Flutter project structured around
-Fluorite's documented API. It maps 1:1 to the web scene:
+[`fluorite_app/`](fluorite_app/) is a real Flutter project coded against the
+**actual `filament_scene` API** (read from
+[toyota-connected/tcna-packages](https://github.com/toyota-connected/tcna-packages)).
+It maps 1:1 to the web scene:
 [`lib/switch2_scene.dart`](fluorite_app/lib/switch2_scene.dart) builds the same
-entities the WebGL `buildEntities()` does.
+entities the WebGL `buildEntities()` does, using the engine's real types —
+`SceneView`, `Scene`, `Cube`, `Camera` (orbit rig), `Light`, `Material` /
+`MaterialParameter`, and `SceneController`.
+
+How it uses the engine:
+
+- The whole 3D world is one **`SceneView`** widget; the console is a hierarchy
+  of **`Cube`** entities parented through `parentId` (the body is the root, so a
+  single rotation turntables the whole thing while Joy-Cons keep local offsets).
+- **`Camera`** is Fluorite's orbit rig (`orbitDistance` / `orbitAngles`); the
+  engine handles drag-to-orbit and pinch-to-zoom natively.
+- Mode/detach/kickstand are eased each frame by a Flutter **`Ticker`** that
+  writes `setLocalPosition` / `setLocalRotation` + `updateTransform()` into the
+  ECS; display power/app swaps rebuild the screen material and push it via
+  `SceneController.updateFilamentScene(...)`.
 
 ```bash
 cd fluorite_app
+# 1) pin filament_scene to a known-good ref in pubspec.yaml
+# 2) copy lit.filmat / unlit.filmat into assets/materials/ and an .hdr into
+#    assets/envs/ (both ship with the filament_scene example)
 flutter pub get
-flutter run            # or: flutter run -d chrome
+flutter run            # Android / desktop / embedded (native Filament view)
 ```
 
-> **Heads‑up:** Fluorite is an early‑stage package (0.0.x) whose native engine
-> compiles per platform. This project was authored in a Node‑only environment
-> without the Flutter SDK, so the Fluorite build is provided as a faithful
-> **reference** against the published API rather than a CI‑verified binary — pin
-> the package to a known‑good ref and provide the screen textures under
-> `assets/models/` before running. The **web build is the fully working,
-> verified deliverable.**
+> **Heads‑up:** `filament_scene` is early-stage and its native Filament view
+> compiles per platform (and depends on compiled `.filmat` material blobs +
+> an IBL `.hdr`). This project was authored in a Node-only environment without
+> the Flutter SDK, so the Flutter build is **written against the real, read
+> API** but has not been compiled here — provide the assets and pin the package
+> ref before running. The **web build is the fully working, verified
+> deliverable.**
 
 ---
 
@@ -111,10 +132,12 @@ flutter run            # or: flutter run -d chrome
 ```
 web/index.html              Working WebGL2 simulator (self-contained)
 fluorite_app/
-  pubspec.yaml              Flutter + fluorite dependency
-  lib/main.dart             FluoriteView + Flutter UI overlay
-  lib/switch2_scene.dart    ECS scene: entities, materials, mode animation
-  assets/models/            (screen textures / GLB assets go here)
+  pubspec.yaml              Flutter + filament_scene (git) dependency
+  lib/main.dart             SceneView + Ticker loop + Flutter UI overlay
+  lib/switch2_scene.dart    ECS scene: Cube entities, materials, mode animation
+  assets/materials/         (lit.filmat / unlit.filmat go here)
+  assets/envs/              (IBL .hdr goes here)
+  assets/models/            (optional GLB upgrades)
 ```
 
 ---
@@ -126,7 +149,7 @@ fluorite_app/
 - Techzine — *Toyota drives development of open source game engine* — https://www.techzine.eu/blogs/applications/138584/toyota-drives-development-of-open-source-game-engine/
 - Holdapp — *3D Games Coming Soon to Flutter: Meet Fluorite Engine* — https://www.holdapp.com/blog/flutter-3d-games-fluorite-engine
 - Fluorite — official site — https://fluorite.game/
-- Fluorite — pub.dev package — https://pub.dev/packages/fluorite
+- Fluorite / `filament_scene` — source (GitHub) — https://github.com/toyota-connected/tcna-packages
 
 ---
 
