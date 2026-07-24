@@ -22,7 +22,7 @@ class Switch2App extends StatelessWidget {
     return MaterialApp(
       title: 'Nintendo Switch 2 · Fluorite Simulator',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark(useMaterial3: true).copyWith(
+      theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0A0C12),
       ),
       home: const SimulatorPage(),
@@ -175,7 +175,7 @@ class _Dot extends StatelessWidget {
         decoration: BoxDecoration(
           color: const Color(0xFF37C3FF),
           shape: BoxShape.circle,
-          boxShadow: [BoxShadow(color: const Color(0xFF37C3FF).withOpacity(.7), blurRadius: 12)],
+          boxShadow: [BoxShadow(color: const Color(0xFF37C3FF).withValues(alpha: .7), blurRadius: 12)],
         ),
       );
 }
@@ -203,9 +203,9 @@ class _InfoPanel extends StatelessWidget {
         width: 232,
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
-          color: const Color(0xFF12151F).withOpacity(.72),
+          color: const Color(0xFF12151F).withValues(alpha: .72),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withOpacity(.08)),
+          border: Border.all(color: Colors.white.withValues(alpha: .08)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('SCENE',
@@ -248,9 +248,9 @@ class _ControlDock extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: const Color(0xFF12151F).withOpacity(.72),
+          color: const Color(0xFF12151F).withValues(alpha: .72),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(.08)),
+          border: Border.all(color: Colors.white.withValues(alpha: .08)),
         ),
         child: Wrap(
           spacing: 8,

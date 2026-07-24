@@ -7,8 +7,9 @@ publish_to: "none"
 version: 1.0.0
 
 environment:
-  sdk: ">=3.4.0 <4.0.0"
-  flutter: ">=3.24.0"
+  # filament_scene requires Dart ^3.8.0 (Flutter 3.32+).
+  sdk: ">=3.8.0 <4.0.0"
+  flutter: ">=3.32.0"
 
 dependencies:
   flutter:

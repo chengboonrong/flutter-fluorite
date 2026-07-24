@@ -152,7 +152,8 @@ fluorite_app/
 ## Continuous integration
 
 [`.github/workflows/flutter.yml`](.github/workflows/flutter.yml) provisions the
-**Flutter SDK** (3.24.5, Dart 3.5) on every push/PR touching `fluorite_app/` and runs:
+**Flutter SDK** (3.32.0, Dart 3.8 — the minimum `filament_scene` requires) on
+every push/PR touching `fluorite_app/` and runs:
 
 - `flutter pub get` — resolves `filament_scene` from its pinned git commit
 - `flutter analyze --no-fatal-infos` — type-checks our Dart against the **real**

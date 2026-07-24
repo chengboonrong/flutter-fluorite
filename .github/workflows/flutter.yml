@@ -39,7 +39,8 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.24.5 # Dart 3.5 — matches pubspec sdk/flutter bounds
+          # filament_scene requires Dart ^3.8.0 → Flutter 3.32+.
+          flutter-version: 3.32.0 # Dart 3.8
           cache: true
 
       - run: flutter --version
