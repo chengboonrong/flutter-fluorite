@@ -1,13 +1,22 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart' show Color;
-import 'package:vector_math/vector_math_64.dart' show Vector2, Vector3, Quaternion;
+// filament_scene's Position / Scale / Rotation typedefs use the 32-bit
+// vector_math library (package:vector_math/vector_math.dart). The 64-bit
+// Vector3/Quaternion are a *different, incompatible* type, so we import the
+// 32-bit ones to match the engine's signatures exactly.
+import 'package:vector_math/vector_math.dart' show Vector2, Vector3, Quaternion;
 
 // Toyota Connected's engine. "Fluorite" is the project/demo name; the Flutter
 // package is `filament_scene`, from github.com/toyota-connected/tcna-packages.
 // It wraps Google's Filament (Vulkan/Metal/GL) behind a data-oriented C++ ECS
 // and surfaces it to Dart. See pubspec.yaml for the dependency.
+//
+// The barrel re-exports Scene/Model/Light/Material/SceneView/… but not the
+// shape and camera types, so those two come in via their own libraries.
 import 'package:filament_scene/filament_scene.dart';
+import 'package:filament_scene/shapes/shapes.dart';
+import 'package:filament_scene/camera/camera.dart';
 import 'package:filament_scene/generated/messages.g.dart';
 
 /// Physical configuration of the console.

@@ -6,6 +6,10 @@ import 'package:switch2_fluorite/switch2_scene.dart';
 // runtime pushes are safely no-ops). This is what CI can verify deterministically
 // — the full render path needs the native engine + compiled assets.
 void main() {
+  // Constructing FilamentViewApi touches the services binding, so make sure a
+  // test binding exists before any scene is built.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('scene builds a GLB body, two Joy-Cons, a camera, and parts', () {
     final scene = Switch2Scene();
 

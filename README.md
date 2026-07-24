@@ -161,7 +161,6 @@ every push/PR touching `fluorite_app/` and runs:
 - `flutter test` — pure-Dart scene-graph tests in
   [`fluorite_app/test/`](fluorite_app/test/) (build the ECS, walk the parent
   hierarchy, drive the mode/app/power state machine — no native engine needed)
-- `dart format` — advisory formatting check
 
 A second job regenerates `switch2_body.glb` with `tools/gen_body_glb.mjs` and
 fails if the committed asset is stale, so the rounded body can never drift from

@@ -48,10 +48,6 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
 
-      - name: Format (advisory)
-        continue-on-error: true
-        run: dart format --output=none --set-exit-if-changed .
-
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
