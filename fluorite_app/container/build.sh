@@ -21,7 +21,7 @@ fi
 # The container system (helper services) must be running before build/run.
 container system start >/dev/null 2>&1 || true
 
-echo ">> Building $IMAGE for linux/amd64 (Flutter 3.32.0) ..."
+echo ">> Building $IMAGE for the host architecture (Flutter 3.32.0) ..."
 container build --tag "$IMAGE" --file "$HERE/Dockerfile" "$HERE"
 
 echo
