@@ -10,11 +10,13 @@
 # container; this image is meant to be driven by Apple's `container` tool
 # (https://github.com/apple/container) via the scripts next to this Dockerfile.
 #
-# It is pinned to the same Flutter the GitHub Actions CI uses (3.32.0 / Dart 3.8)
-# and built for linux/amd64 to match Flutter's official prebuilt SDK and the
-# ubuntu-latest CI runner. On Apple Silicon, `container` runs an amd64 image
-# through emulation.
-FROM --platform=linux/amd64 ubuntu:22.04
+# It is pinned to the same Flutter the GitHub Actions CI uses (3.32.0 / Dart 3.8).
+# The image builds for the host's native architecture — Apple's `container` runs
+# a native-arm64 Linux VM on Apple-silicon Macs and does not emulate amd64, so a
+# forced linux/amd64 image fails to exec (ENOEXEC). Flutter is therefore
+# installed via git (not the x86_64-only release tarball) so the flutter tool can
+# fetch the matching-arch Dart SDK + engine on both arm64 and amd64 hosts.
+FROM ubuntu:22.04
 
 ARG FLUTTER_VERSION=3.32.0
 ENV DEBIAN_FRONTEND=noninteractive
@@ -38,15 +40,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Flutter SDK (pinned to match CI) ---------------------------------------
-RUN curl -fsSL \
-      "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz" \
-      -o /tmp/flutter.tar.xz \
-    && tar -xf /tmp/flutter.tar.xz -C /opt \
-    && rm /tmp/flutter.tar.xz
+# Cloned at the release tag rather than downloaded as the x86_64-only tarball,
+# so this builds natively on arm64 and amd64 alike; the first `flutter` call
+# below fetches the host-arch Dart SDK + engine artifacts.
+RUN git clone --depth 1 --branch "${FLUTTER_VERSION}" \
+      https://github.com/flutter/flutter.git "$FLUTTER_HOME"
 
-# The repo is bind-mounted at run time and owned by a different uid than the
-# container user; git (and therefore Flutter) refuse to touch such a checkout
-# unless it is marked safe.
+# Flutter runs git against its own repo, and the repo is bind-mounted at run
+# time under a different uid; git (and therefore Flutter) refuse such checkouts
+# unless they are marked safe.
 RUN git config --global --add safe.directory '*'
 
 # Enable the Linux desktop target and warm the caches once, at build time, so

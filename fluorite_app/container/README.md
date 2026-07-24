@@ -49,7 +49,9 @@ From this directory (`fluorite_app/container/`):
 
 ```sh
 # 1. Build the image (Ubuntu 22.04 + Flutter 3.32.0 + Linux desktop toolchain).
-#    linux/amd64, matching Flutter's prebuilt SDK; runs under emulation on ARM.
+#    Builds for the host architecture — `container` runs a native-arm64 Linux VM
+#    on Apple silicon (no amd64 emulation), so the image is arm64 there. Flutter
+#    is installed from git so it fetches the matching-arch Dart SDK + engine.
 ./build.sh
 
 # 2a. Mirror GitHub Actions locally: pub get + analyze + test.

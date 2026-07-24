@@ -151,7 +151,7 @@ Flutter 3.32 toolchain and is driven by
 
 ```bash
 cd fluorite_app/container
-./build.sh   # Ubuntu 22.04 + Flutter 3.32 + Linux desktop toolchain
+./build.sh   # Ubuntu 22.04 + Flutter 3.32 + Linux desktop toolchain (native arch)
 ./ci.sh      # pub get + analyze + test, exactly like GitHub Actions
 ./run.sh     # …or an interactive shell with the repo mounted
 ```
