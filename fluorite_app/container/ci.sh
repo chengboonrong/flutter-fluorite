@@ -31,7 +31,8 @@ container run --rm \
     flutter test
     echo
     echo "== analyze + test passed =="
-    echo "For the native render path, inside the container run:"
-    echo "  flutter build linux --debug"
-    echo "(needs the ivi-homescreen filament_view runtime + a GPU/display — see container/README.md)"
+    echo "Note: Linux desktop is enabled (linux/ runner present), but"
+    echo "  flutter build linux  fails at CMake with this filament_scene version"
+    echo "  (its native side ships via ivi-homescreen filament_view, not a GTK"
+    echo "  desktop plugin). See container/README.md for the details."
   '
