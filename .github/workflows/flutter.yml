@@ -7,16 +7,10 @@ name: Flutter CI
 # out of CI scope — see fluorite_app/README notes.
 
 on:
-  push:
-    branches: ["**"]
-    paths:
-      - "fluorite_app/**"
-      - ".github/workflows/flutter.yml"
   pull_request:
     paths:
       - "fluorite_app/**"
       - ".github/workflows/flutter.yml"
-  workflow_dispatch:
 
 permissions:
   contents: read
