@@ -89,7 +89,7 @@ class _SimulatorPageState extends State<SimulatorPage> with SingleTickerProvider
           // ---- The entire 3D scene, in one widget --------------------------
           SceneView(
             filament: _sim.filament,
-            models: const [],
+            models: _sim.models,
             shapes: _sim.shapes,
             cameras: _sim.cameras,
             scene: _sim.scene,
