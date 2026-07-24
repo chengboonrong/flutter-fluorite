@@ -24,11 +24,15 @@ dependencies:
     git:
       url: https://github.com/toyota-connected/tcna-packages.git
       path: packages/filament_scene
-      ref: main
+      # Pinned to the commit this app was written against, so CI is reproducible.
+      # Bump it deliberately when you want a newer engine.
+      ref: 57b1b51c2cf48cb61760f5ea976bccfe5f75ccbb
 
   vector_math: ^2.1.4
 
 dev_dependencies:
+  flutter_test:
+    sdk: flutter
   flutter_lints: ^4.0.0
 
 flutter:

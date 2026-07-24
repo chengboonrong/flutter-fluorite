@@ -1,5 +1,7 @@
 # Nintendo Switch 2 — Simulator, built with a Fluorite‑style 3D engine
 
+[![Flutter CI](https://github.com/chengboonrong/flutter-fluorite/actions/workflows/flutter.yml/badge.svg)](https://github.com/chengboonrong/flutter-fluorite/actions/workflows/flutter.yml)
+
 An interactive, real‑time 3D simulation of the **Nintendo Switch 2**, created as
 a study of **Fluorite**, Toyota's open‑source Flutter 3D engine.
 
@@ -133,15 +135,40 @@ flutter run            # Android / desktop / embedded (native Filament view)
 
 ```
 web/index.html              Working WebGL2 simulator (self-contained)
+.github/workflows/flutter.yml  Flutter SDK CI (analyze, test, asset check)
 fluorite_app/
   pubspec.yaml              Flutter + filament_scene (git) dependency
   lib/main.dart             SceneView + Ticker loop + Flutter UI overlay
   lib/switch2_scene.dart    ECS scene: GLB body + Cube parts, materials, animation
+  test/switch2_scene_test.dart   Pure-Dart scene-graph tests
   tools/gen_body_glb.mjs    Generates the rounded-edge switch2_body.glb
   assets/materials/         (lit.filmat / unlit.filmat go here)
   assets/envs/              (IBL .hdr goes here)
   assets/models/            switch2_body.glb (rounded body, committed)
 ```
+
+---
+
+## Continuous integration
+
+[`.github/workflows/flutter.yml`](.github/workflows/flutter.yml) provisions the
+**Flutter SDK** (3.24.5, Dart 3.5) on every push/PR touching `fluorite_app/` and runs:
+
+- `flutter pub get` — resolves `filament_scene` from its pinned git commit
+- `flutter analyze --no-fatal-infos` — type-checks our Dart against the **real**
+  engine API (undefined names / signature mismatches fail the build)
+- `flutter test` — pure-Dart scene-graph tests in
+  [`fluorite_app/test/`](fluorite_app/test/) (build the ECS, walk the parent
+  hierarchy, drive the mode/app/power state machine — no native engine needed)
+- `dart format` — advisory formatting check
+
+A second job regenerates `switch2_body.glb` with `tools/gen_body_glb.mjs` and
+fails if the committed asset is stale, so the rounded body can never drift from
+its generator.
+
+> The compiled native render path (`.filmat` materials, IBL `.hdr`, the platform
+> Filament view) is out of CI scope — those assets and the native toolchain are
+> provided per-platform at build time.
 
 ---
 
