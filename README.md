@@ -129,6 +129,35 @@ flutter run            # Android / desktop / embedded (native Filament view)
 > ref before running. The **web build is the fully working, verified
 > deliverable.**
 
+### Target platforms — Fluorite is Linux‑only
+
+`filament_scene`'s own `pubspec.yaml` declares a Flutter plugin for **`linux`
+only** (no `android` / `ios` / `macos` / `web` plugin entry), and the native
+engine core lives in
+[`toyota-connected/ivi-homescreen-plugins` → `filament_view`](https://github.com/toyota-connected/ivi-homescreen-plugins/tree/v2.0/plugins/filament_view),
+which targets embedded **Linux / Wayland**.
+
+| Target | Dart compiles? | Fluorite render path? |
+|--------|:---:|:---:|
+| **Linux** | ✅ | ✅ |
+| web / android / ios / macos | ✅ (scaffolded) | ❌ no native plugin |
+
+The four platforms scaffolded via `flutter create` let the Dart *compile*
+everywhere (which is why `flutter build web` succeeds), but the actual 3D view
+only renders on **Linux**. On a Mac, build it inside a Linux container:
+[`fluorite_app/container/`](fluorite_app/container/) packages the CI's exact
+Flutter 3.32 toolchain and is driven by
+[**Apple `container`**](https://github.com/apple/container) —
+
+```bash
+cd fluorite_app/container
+./build.sh   # Ubuntu 22.04 + Flutter 3.32 + Linux desktop toolchain
+./ci.sh      # pub get + analyze + test, exactly like GitHub Actions
+./run.sh     # …or an interactive shell with the repo mounted
+```
+
+See [`container/README.md`](fluorite_app/container/README.md) for details.
+
 ---
 
 ## Project layout
@@ -142,6 +171,7 @@ fluorite_app/
   lib/switch2_scene.dart    ECS scene: GLB body + Cube parts, materials, animation
   test/switch2_scene_test.dart   Pure-Dart scene-graph tests
   tools/gen_body_glb.mjs    Generates the rounded-edge switch2_body.glb
+  container/                Linux build container (Apple `container`) — Fluorite is Linux-only
   assets/materials/         (lit.filmat / unlit.filmat go here)
   assets/envs/              (IBL .hdr goes here)
   assets/models/            switch2_body.glb (rounded body, committed)
