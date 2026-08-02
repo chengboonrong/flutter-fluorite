@@ -10,11 +10,16 @@ There are two builds of the same scene:
 | Build | Path | Renderer | Runs where |
 |------|------|----------|------------|
 | **Web (works today)** | [`web/index.html`](web/index.html) | Self‑contained **WebGL2** PBR pipeline, zero dependencies | Any modern browser |
-| **Fluorite‑native (reference)** | [`fluorite_app/`](fluorite_app/) | **Toyota Fluorite** (Filament / Vulkan) via Flutter | Flutter SDK + Fluorite package |
+| **R3F + WebGPU** | [`web-r3f/`](web-r3f/) | **React Three Fiber** over **WebGPU** (WebGL2 fallback), TSL bloom | Any modern browser (needs a build) |
+| **Fluorite‑native (reference)** | [`fluorite_app/`](fluorite_app/) | **Toyota Fluorite** (Filament / Vulkan) via Flutter | Linux + ivi‑homescreen |
 
-Both describe the console the same way — an ECS‑style list of entities, each with
-a transform, a mesh, and a PBR material — so the WebGL build is a faithful,
-runnable stand‑in for the engine‑native one.
+All three describe the console the same way — an ECS‑style set of entities, each
+with a transform, a mesh, and a PBR material — so the two web builds are
+faithful, runnable stand‑ins for the engine‑native one. They even share the same
+`switch2_body.glb`.
+
+The three are deliberately different *styles* of the same scene:
+**hand‑rolled imperative → declarative modern → engine‑native.**
 
 ---
 
@@ -86,6 +91,35 @@ open web/index.html
 # …or serve it (recommended so nothing is cached oddly)
 python3 -m http.server -d web 8000   # then visit http://localhost:8000
 ```
+
+### Run the R3F + WebGPU build
+
+[`web-r3f/`](web-r3f/) is the declarative counterpart — and structurally the
+closest of the three to Fluorite, because R3F and `filament_scene` solve the
+same problem the same way: a reactive component tree wrapping an imperative
+modern‑GPU PBR renderer. Entities are parented by **nesting `<group>`** exactly
+as Fluorite parents them by `parentId`, and it loads the *same*
+`switch2_body.glb` the Flutter app loads.
+
+```bash
+cd web-r3f
+npm install
+npm run dev      # http://localhost:5173
+npm run build    # → dist/ (static)
+```
+
+What the ecosystem buys over the hand‑written build: **TSL bloom** (the OLED
+halo), **real IBL** from `<Lightformer>` shapes instead of a hemisphere
+approximation, a **transmission** lobe on the front glass, and **shadows** that
+ground the console. The renderer is always `WebGPURenderer`, which falls back to
+its WebGL2 backend automatically — the same TSL bloom graph compiles to WGSL or
+GLSL either way, and the HUD reports which backend won.
+
+> Trade‑off: this build needs npm + a build step and ships ~530 KB gzipped,
+> whereas `web/index.html` is a single dependency‑free file. Both are kept.
+> See [`web-r3f/README.md`](web-r3f/README.md) — including *What didn't port
+> cleanly*, where drei's `<ContactShadows/>` turns out to be incompatible with
+> the node‑based renderer.
 
 ### Run the Fluorite‑native build
 
@@ -173,7 +207,13 @@ See [`container/README.md`](fluorite_app/container/README.md) for details.
 ## Project layout
 
 ```
-web/index.html              Working WebGL2 simulator (self-contained)
+web/index.html              Working WebGL2 simulator (self-contained, zero deps)
+web-r3f/                    React Three Fiber + WebGPU build (Vite)
+  src/App.jsx               Canvas, WebGPU renderer, TSL bloom, IBL, lights
+  src/scene/Switch2.jsx     Declarative scene graph — <group> nesting == parentId
+  src/scene/materials.js    Shared PBR table (same numbers as the WebGL build)
+  src/ui/Overlay.jsx        React HUD composited over the canvas
+  public/models/            switch2_body.glb (the same asset fluorite_app loads)
 .github/workflows/flutter.yml  Flutter SDK CI (analyze, test, asset check)
 fluorite_app/
   pubspec.yaml              Flutter + filament_scene (git) dependency
